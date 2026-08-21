@@ -160,7 +160,7 @@ int test_vsync(void) {
     float average = 4.0 * 1000.0 / (end - start);
 
     vsync_enabled = 1;
-    if (average > 27 && average < 33) {
+    /*if (average > 27 && average < 33) {
         SDL_GL_SetSwapInterval(1);
     } else if (average > 57 && average < 63) {
         SDL_GL_SetSwapInterval(2);
@@ -168,6 +168,13 @@ int test_vsync(void) {
         SDL_GL_SetSwapInterval(3);
     } else if (average > 115 && average < 125) {
         SDL_GL_SetSwapInterval(4);
+    } else {
+        vsync_enabled = 0;
+    }*/
+    if (average > 57 && average < 63) {
+        SDL_GL_SetSwapInterval(1);
+    } else if (average > 115 && average < 125) {
+        SDL_GL_SetSwapInterval(2);
     } else {
         vsync_enabled = 0;
     }
@@ -380,8 +387,8 @@ static bool gfx_sdl_start_frame(void) {
 
 #ifndef ENABLE_METAL
 static void sync_framerate_with_timer(void) {
-    // Number of milliseconds a frame should take (30 fps)
-    const Uint32 FRAME_TIME = 1000 / 30;
+    // Number of milliseconds a frame should take (60 fps)
+    const Uint32 FRAME_TIME = 1000 / 60;
     static Uint32 last_time;
     Uint32 elapsed = SDL_GetTicks() - last_time;
 
