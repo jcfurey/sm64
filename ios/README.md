@@ -1,8 +1,15 @@
 # Super Mario 64 for iOS
 
 This directory contains the iOS packaging for the port. The build produces a
-native arm64 app (`.app` bundle and sideloadable `.ipa`) rendering through
-OpenGL ES 2.0 with touch controls, for the `us` and `jp` versions of the game.
+native arm64 app (`.app` bundle and sideloadable `.ipa`) with touch controls,
+for the `us` and `jp` versions of the game.
+
+Rendering uses **Metal** by default — Apple's modern graphics API — through a
+backend that compiles a Metal pipeline for each N64 color-combiner mode at
+runtime and paces presentation to the game's 30 fps with
+`presentDrawable:afterMinimumDuration:`. An OpenGL ES 2.0 fallback renderer
+is kept available with `ENABLE_OPENGL=1` (GLES is deprecated on iOS but still
+functional; useful for A/B-testing rendering issues).
 
 Because the game's assets are extracted from your ROM into the binary at build
 time, **the resulting app contains copyrighted game data — build it for
@@ -88,6 +95,8 @@ updates (but not uninstalling).
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `VERSION` | `us` | Game version: `us` or `jp` (`eu` also builds but is less tested on the port) |
+| `ENABLE_OPENGL` | off | Use the OpenGL ES 2.0 renderer instead of Metal |
+| `PEDANTIC` | `0` | Compile the platform layer (`src/pc`) with `-Wall -Wextra -Wpedantic` |
 | `IOS_MIN_VERSION` | `14.0` | Minimum iOS version |
 | `IOS_ARCH` | `arm64` | Target architecture |
 | `IOS_BUNDLE_ID` | `com.sm64port.<version>` | Bundle identifier |
@@ -97,4 +106,10 @@ updates (but not uninstalling).
 
 The iOS build compiles with `-O3 -flto` (link-time optimization) by default;
 the game is far below what modern iPhone hardware can render, so it runs at a
-locked 30 fps (the game's native logic rate) with vsync.
+locked 30 fps (the game's native logic rate), frame-paced by the Metal
+presentation queue (or vsync under the GLES fallback).
+
+`PEDANTIC=1` is scoped to the modern platform code on purpose: the decompiled
+1996 game code relies on GNU C extensions and idioms that predate these
+warnings, so compiling it with `-Wpedantic` would bury real findings in
+thousands of historical ones. The platform layer compiles clean under it.

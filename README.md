@@ -10,8 +10,9 @@ A prior copy of the game is required to extract the assets.
 ## Building for iOS
 
 The iOS target produces an optimized native arm64 app for the `us` and `jp`
-versions, rendering through OpenGL ES 2.0 with touch controls and Bluetooth
-controller support. It requires a macOS host with Xcode:
+versions, rendering through **Metal** (with an OpenGL ES 2.0 fallback) with
+touch controls and Bluetooth controller support. It requires a macOS host
+with Xcode:
 
 ```
 ./ios/build-sdl2.sh                 # one-time: build static SDL2 for iOS

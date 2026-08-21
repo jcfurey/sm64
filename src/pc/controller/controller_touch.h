@@ -17,10 +17,17 @@ void touch_up(long long finger_id);
 // aspect-correct before the first overlay frame is drawn
 void touch_set_screen_size(int width, int height);
 
+// Builds the overlay geometry for the current touch state and returns it:
+// *num_verts vertices, interleaved [x, y, r, g, b, a] with x/y in
+// normalized device coordinates. The Metal backend draws this itself.
+const float *touch_overlay_build(int width, int height, int *num_verts);
+
+#ifdef ENABLE_OPENGL
 // Draws the on-screen control overlay. Called by the window backend at the
 // end of a frame, with the GL context current and the frame already
 // rendered. Width/height are the drawable size in pixels.
 void touch_render_overlay(int width, int height);
+#endif
 
 #endif
 

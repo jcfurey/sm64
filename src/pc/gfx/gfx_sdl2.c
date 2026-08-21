@@ -1,6 +1,6 @@
 #include "../compat.h"
 
-#if !defined(__linux__) && !defined(__BSD__) && defined(ENABLE_OPENGL)
+#if !defined(__linux__) && !defined(__BSD__) && (defined(ENABLE_OPENGL) || defined(ENABLE_METAL))
 
 #ifdef __MINGW32__
 #define FOR_WINDOWS 1
@@ -8,6 +8,7 @@
 #define FOR_WINDOWS 0
 #endif
 
+#ifdef ENABLE_OPENGL
 #if FOR_WINDOWS
 #include <GL/glew.h>
 #include "SDL.h"
@@ -18,15 +19,26 @@
 #define GL_GLEXT_PROTOTYPES 1
 #include <SDL2/SDL_opengles2.h>
 #endif
+#else
+#include <SDL2/SDL.h>
+#endif
 
 #include "gfx_window_manager_api.h"
 #include "gfx_screen_config.h"
+
+#ifdef ENABLE_METAL
+#include "gfx_metal.h"
+#endif
 
 #ifdef TARGET_IOS
 #include "../controller/controller_touch.h"
 #endif
 
+#ifdef ENABLE_METAL
+#define GFX_API_NAME "SDL2 - Metal"
+#else
 #define GFX_API_NAME "SDL2 - OpenGL"
+#endif
 
 static SDL_Window *wnd;
 static int inverted_scancode_table[512];
@@ -117,6 +129,7 @@ static void set_fullscreen(bool on, bool call_callback) {
     }
 }
 
+#ifdef ENABLE_OPENGL
 int test_vsync(void) {
     // Even if SDL_GL_SetSwapInterval succeeds, it doesn't mean that VSync actually works.
     // A 60 Hz monitor should have a swap interval of 16.67 milliseconds.
@@ -159,20 +172,52 @@ int test_vsync(void) {
         vsync_enabled = 0;
     }
 }
+#endif
+
+#ifdef ENABLE_METAL
+static SDL_MetalView metal_view;
+
+void *gfx_sdl_get_metal_layer(void) {
+    return SDL_Metal_GetLayer(metal_view);
+}
+#endif
 
 static void gfx_sdl_init(const char *game_name, bool start_in_fullscreen) {
     SDL_Init(SDL_INIT_VIDEO);
 
+#ifdef ENABLE_OPENGL
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
 
     //SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
     //SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 4);
+#endif
 
     char title[512];
-    int len = sprintf(title, "%s (%s)", game_name, GFX_API_NAME);
+    sprintf(title, "%s (%s)", game_name, GFX_API_NAME);
 
+#ifdef ENABLE_METAL
+    SDL_SetHint(SDL_HINT_IOS_HIDE_HOME_INDICATOR, "2");
+
+    wnd = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+            0, 0, SDL_WINDOW_METAL | SDL_WINDOW_SHOWN | SDL_WINDOW_FULLSCREEN
+            | SDL_WINDOW_BORDERLESS | SDL_WINDOW_ALLOW_HIGHDPI);
+    fullscreen_state = true;
+
+    metal_view = SDL_Metal_CreateView(wnd);
+
+    // Render at the native (retina) resolution
+    int drawable_w, drawable_h;
+    SDL_Metal_GetDrawableSize(wnd, &drawable_w, &drawable_h);
+    window_width = drawable_w;
+    window_height = drawable_h;
 #ifdef TARGET_IOS
+    touch_set_screen_size(drawable_w, drawable_h);
+#endif
+
+    // Presentation pacing is handled by the Metal backend
+    vsync_enabled = 1;
+#elif defined(TARGET_IOS)
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
@@ -310,12 +355,16 @@ static void gfx_sdl_handle_events(void) {
 #endif
             case SDL_WINDOWEVENT:
                 if (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
-#ifdef TARGET_IOS
+#if defined(ENABLE_METAL)
+                    SDL_Metal_GetDrawableSize(wnd, (int *) &window_width, (int *) &window_height);
+#elif defined(TARGET_IOS)
                     SDL_GL_GetDrawableSize(wnd, (int *) &window_width, (int *) &window_height);
-                    touch_set_screen_size(window_width, window_height);
 #else
                     window_width = event.window.data1;
                     window_height = event.window.data2;
+#endif
+#ifdef TARGET_IOS
+                    touch_set_screen_size(window_width, window_height);
 #endif
                 }
                 break;
@@ -329,6 +378,7 @@ static bool gfx_sdl_start_frame(void) {
     return true;
 }
 
+#ifndef ENABLE_METAL
 static void sync_framerate_with_timer(void) {
     // Number of milliseconds a frame should take (30 fps)
     const Uint32 FRAME_TIME = 1000 / 30;
@@ -339,8 +389,13 @@ static void sync_framerate_with_timer(void) {
         SDL_Delay(FRAME_TIME - elapsed);
     last_time += FRAME_TIME;
 }
+#endif
 
 static void gfx_sdl_swap_buffers_begin(void) {
+#ifdef ENABLE_METAL
+    // The Metal backend schedules the present and paces the frame rate
+    gfx_metal_present();
+#else
 #ifdef TARGET_IOS
     touch_render_overlay(window_width, window_height);
 #endif
@@ -350,6 +405,7 @@ static void gfx_sdl_swap_buffers_begin(void) {
     }
 
     SDL_GL_SwapWindow(wnd);
+#endif
 }
 
 static void gfx_sdl_swap_buffers_end(void) {

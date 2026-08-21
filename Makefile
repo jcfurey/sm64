@@ -21,6 +21,9 @@ TARGET_N64 ?= 0
 TARGET_WEB ?= 0
 # Build for iOS (requires macOS with Xcode; see ios/README.md)
 TARGET_IOS ?= 0
+# Compile the platform layer (src/pc) with -Wall -Wextra -Wpedantic.
+# The decompiled game code predates these warnings and is left alone.
+PEDANTIC ?= 0
 # Compiler to use (ido or gcc)
 
 ifeq ($(TARGET_IOS),1)
@@ -62,12 +65,25 @@ ifeq ($(TARGET_N64),0)
         ENABLE_DX11 ?= 1
       endif
     endif
+  else ifeq ($(TARGET_IOS),1)
+    # On iOS, default to Metal; pass ENABLE_OPENGL=1 for the GLES2 fallback
+    ifneq ($(ENABLE_OPENGL),1)
+      ENABLE_METAL ?= 1
+    endif
   else
     # On others, default to OpenGL
     ENABLE_OPENGL ?= 1
   endif
 
   # Sanity checks
+  ifeq ($(ENABLE_METAL),1)
+    ifneq ($(TARGET_IOS),1)
+      $(error The Metal backend is only supported on iOS)
+    endif
+    ifeq ($(ENABLE_OPENGL),1)
+      $(error Cannot specify multiple graphics backends)
+    endif
+  endif
   ifeq ($(ENABLE_DX11),1)
     ifneq ($(TARGET_WINDOWS),1)
       $(error The DirectX 11 backend is only supported on Windows)
@@ -353,6 +369,11 @@ include Makefile.split
 LEVEL_C_FILES     := $(wildcard levels/*/leveldata.c) $(wildcard levels/*/script.c) $(wildcard levels/*/geo.c)
 C_FILES           := $(foreach dir,$(SRC_DIRS),$(wildcard $(dir)/*.c)) $(LEVEL_C_FILES)
 CXX_FILES         := $(foreach dir,$(SRC_DIRS),$(wildcard $(dir)/*.cpp))
+ifeq ($(ENABLE_METAL),1)
+  MM_FILES        := $(foreach dir,$(SRC_DIRS),$(wildcard $(dir)/*.mm))
+else
+  MM_FILES        :=
+endif
 S_FILES           := $(foreach dir,$(SRC_DIRS),$(wildcard $(dir)/*.s))
 ULTRA_C_FILES     := $(foreach dir,$(ULTRA_SRC_DIRS),$(wildcard $(dir)/*.c))
 GODDARD_C_FILES   := $(foreach dir,$(GODDARD_SRC_DIRS),$(wildcard $(dir)/*.c))
@@ -402,6 +423,7 @@ SOUND_SEQUENCE_FILES := \
 # Object files
 O_FILES := $(foreach file,$(C_FILES),$(BUILD_DIR)/$(file:.c=.o)) \
            $(foreach file,$(CXX_FILES),$(BUILD_DIR)/$(file:.cpp=.o)) \
+           $(foreach file,$(MM_FILES),$(BUILD_DIR)/$(file:.mm=.o)) \
            $(foreach file,$(S_FILES),$(BUILD_DIR)/$(file:.s=.o)) \
            $(foreach file,$(GENERATED_C_FILES),$(file:.c=.o))
 
@@ -587,12 +609,19 @@ ifeq ($(TARGET_IOS),1)
       $(error SDL2 for iOS not found at $(IOS_SDL2_PATH) - build it first, see ios/README.md)
     endif
   endif
-  PLATFORM_CFLAGS  := -DTARGET_IOS -DUSE_GLES $(IOS_TARGET_FLAGS) -I$(IOS_SDL2_PATH)/include
+  PLATFORM_CFLAGS  := -DTARGET_IOS $(IOS_TARGET_FLAGS) -I$(IOS_SDL2_PATH)/include
+  ifeq ($(ENABLE_OPENGL),1)
+    PLATFORM_CFLAGS += -DUSE_GLES
+  endif
   PLATFORM_LDFLAGS := -lm $(OPT_FLAGS) $(IOS_TARGET_FLAGS) -L$(IOS_SDL2_PATH)/lib -lSDL2 \
     -framework UIKit -framework Foundation -framework CoreGraphics -framework QuartzCore \
     -framework AudioToolbox -framework CoreAudio -framework AVFoundation \
     -framework GameController -framework CoreMotion -framework CoreHaptics \
     -framework CoreBluetooth -framework CoreVideo -framework Metal -framework OpenGLES
+  ifeq ($(ENABLE_METAL),1)
+    # Objective-C++ runtime support for the Metal backend
+    PLATFORM_LDFLAGS += -lc++
+  endif
 endif
 
 PLATFORM_CFLAGS += -DNO_SEGMENTED_MEMORY -DUSE_SYSTEM_MALLOC
@@ -615,6 +644,10 @@ ifeq ($(ENABLE_OPENGL),1)
   endif
   # On iOS, SDL2 and OpenGL ES come from PLATFORM_CFLAGS/PLATFORM_LDFLAGS
 endif
+ifeq ($(ENABLE_METAL),1)
+  GFX_CFLAGS  := -DENABLE_METAL
+  GFX_LDFLAGS :=
+endif
 ifeq ($(ENABLE_DX11),1)
   GFX_CFLAGS := -DENABLE_DX11
   PLATFORM_LDFLAGS += -lgdi32 -static
@@ -636,6 +669,10 @@ endif
 
 CC_CHECK := $(CC) -fsyntax-only -fsigned-char -Wall -Wextra -Wno-format-security -D_LANGUAGE_C $(DEF_INC_CFLAGS) $(PLATFORM_CFLAGS) $(GFX_CFLAGS)
 CFLAGS := $(OPT_FLAGS) -D_LANGUAGE_C $(DEF_INC_CFLAGS) $(PLATFORM_CFLAGS) $(GFX_CFLAGS) -fno-strict-aliasing -fwrapv $(MARCH_CFLAGS)
+
+ifeq ($(PEDANTIC),1)
+  $(BUILD_DIR)/src/pc/%.o: CFLAGS += -Wall -Wextra -Wpedantic
+endif
 
 ASFLAGS := -I include -I $(BUILD_DIR) $(foreach d,$(DEFINES),--defsym $(d))
 
@@ -1009,6 +1046,9 @@ $(BUILD_DIR)/%.o: %.cpp
 	$(call print,Compiling:,$<,$@)
 	@$(CXX) -fsyntax-only $(CFLAGS) -MMD -MP -MT $@ -MF $(BUILD_DIR)/$*.d $<
 	$(V)$(CXX) -c $(CFLAGS) -o $@ $<
+$(BUILD_DIR)/%.o: %.mm
+	$(call print,Compiling:,$<,$@)
+	$(V)$(CC) -c $(CFLAGS) -fobjc-arc -MMD -MP -MT $@ -MF $(BUILD_DIR)/$*.d -o $@ $<
 $(BUILD_DIR)/%.o: %.c
 	$(call print,Compiling:,$<,$@)
 	$(V)$(CC_CHECK) $(CC_CHECK_CFLAGS) -MMD -MP -MT $@ -MF $(BUILD_DIR)/$*.d $<

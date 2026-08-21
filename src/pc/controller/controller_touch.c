@@ -15,8 +15,11 @@
 #include <string.h>
 
 #include <SDL2/SDL.h>
+
+#ifdef ENABLE_OPENGL
 #define GL_GLEXT_PROTOTYPES 1
 #include <SDL2/SDL_opengles2.h>
+#endif
 
 #include <ultra64.h>
 
@@ -199,7 +202,7 @@ struct ControllerAPI controller_touch = {
 };
 
 //==============================================================================
-// Overlay rendering (OpenGL ES 2.0)
+// Overlay geometry (renderer-independent)
 //==============================================================================
 
 #define CIRCLE_SEGMENTS 24
@@ -208,12 +211,14 @@ struct ControllerAPI controller_touch = {
 // stick base + stick nub + buttons, all circles, plus 4 direction arrows
 #define MAX_VERTS ((2 + TOUCH_BUTTON_COUNT) * CIRCLE_SEGMENTS * 3 + 4 * 3)
 
+static float overlay_verts[MAX_VERTS * FLOATS_PER_VERTEX];
+static int overlay_num_verts;
+
+#ifdef ENABLE_OPENGL
+
 static GLuint overlay_program;
 static GLuint overlay_vbo;
 static bool overlay_inited;
-
-static float overlay_verts[MAX_VERTS * FLOATS_PER_VERTEX];
-static int overlay_num_verts;
 
 static const char overlay_vs[] =
     "#version 100\n"
@@ -255,6 +260,8 @@ static void overlay_init(void) {
     glGenBuffers(1, &overlay_vbo);
     overlay_inited = true;
 }
+
+#endif // ENABLE_OPENGL
 
 static void overlay_push_vertex(float px, float py, const float color[4], float alpha) {
     if (overlay_num_verts >= MAX_VERTS) {
@@ -356,6 +363,19 @@ static void overlay_build(void) {
                        touch_buttons[TOUCH_C_RIGHT].r * h, 1.0f, 0.0f, arrow_alpha_base);
 }
 
+// Builds the overlay for the current touch state and returns the vertex
+// data: num_verts vertices, interleaved as [x, y, r, g, b, a] with x/y in
+// normalized device coordinates. Used directly by the Metal backend; the
+// OpenGL path below renders the same data itself.
+const float *touch_overlay_build(int width, int height, int *num_verts) {
+    touch_set_screen_size(width, height);
+    overlay_build();
+    *num_verts = overlay_num_verts;
+    return overlay_verts;
+}
+
+#ifdef ENABLE_OPENGL
+
 // The game's renderer (gfx_opengl.c) caches GL state across frames: the
 // current program, its VBO binding, vertex attrib pointers, viewport and
 // enable flags are only re-specified when the renderer thinks they changed.
@@ -394,15 +414,14 @@ static void restore_attrib(GLuint index, const struct SavedAttrib *a) {
 }
 
 void touch_render_overlay(int width, int height) {
-    touch_set_screen_size(width, height);
+    int num_verts;
+    touch_overlay_build(width, height, &num_verts);
+    if (num_verts == 0) {
+        return;
+    }
 
     if (!overlay_inited) {
         overlay_init();
-    }
-
-    overlay_build();
-    if (overlay_num_verts == 0) {
-        return;
     }
 
     GLint prev_program, prev_array_buffer, prev_viewport[4];
@@ -448,4 +467,6 @@ void touch_render_overlay(int width, int height) {
     }
 }
 
-#endif
+#endif // ENABLE_OPENGL
+
+#endif // TARGET_IOS
