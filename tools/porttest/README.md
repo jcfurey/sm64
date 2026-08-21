@@ -36,6 +36,28 @@ The selection tests also pin down behavior that is easy to get wrong: a
 frame cap has to divide the display's refresh multiple or vsync pacing goes
 uneven, so 90 fps on a 120 Hz display deliberately rounds down to 60.
 
+## `gfx_pool_test`
+
+Feeds the interpreter more distinct colour combiner configurations than its
+fixed pools hold.
+
+`gfx_pc` keeps a 64-entry combiner pool, and every rendering backend keeps a
+shader program pool of the same size. All of them were filled with a bare
+post-increment and no bounds check. Super Mario 64 uses a fraction of the
+capacity, so it never showed up in play — but a display list is *data*, and
+data should not be able to write past the end of a static array. Under
+AddressSanitizer the unguarded version reports a four-byte global buffer
+overflow landing immediately before `gfx_texture_cache`, whose hashmap is
+full of pointers.
+
+```
+make -C tools/porttest gfx_pool_test_asan && ./tools/porttest/gfx_pool_test_asan
+```
+
+Both pools now stop at their limit and reuse an existing entry, so an
+over-complex display list renders with the wrong combiner instead of
+corrupting memory.
+
 ## `gfx_bench`
 
 Times the N64 display list interpreter (`src/pc/gfx/gfx_pc.c`) against a

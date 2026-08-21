@@ -9,7 +9,7 @@
 #   ./tools/porttest/gfx_bench 5000
 
 ROOT := ../..
-PROGRAMS := fs_atomic_test framerate_test gfx_bench
+PROGRAMS := fs_atomic_test framerate_test gfx_pool_test gfx_bench
 
 CFLAGS := -O2 -g -Wall -Wextra -Wno-unused-parameter -std=gnu11 \
           -D_LANGUAGE_C -DVERSION_US=1 -DF3DEX_GBI_2E=1 -DNON_MATCHING=1 \
@@ -26,16 +26,29 @@ fs_atomic_test: fs_atomic_test.c $(ROOT)/src/pc/fs.c
 framerate_test: framerate_test.c $(ROOT)/src/pc/framerate.c $(ROOT)/src/pc/configfile.c $(ROOT)/src/pc/fs.c
 	$(CC) $(CFLAGS) -o $@ $^
 
+GFX_SRCS := $(ROOT)/src/pc/gfx/gfx_pc.c $(ROOT)/src/pc/gfx/gfx_dummy.c \
+            $(ROOT)/src/pc/gfx/gfx_cc.c $(ROOT)/src/pc/configfile.c $(ROOT)/src/pc/fs.c
+
+gfx_pool_test: gfx_pool_test.c $(GFX_SRCS)
+	$(CC) $(CFLAGS) -o $@ $^ -lm
+
+# Same test under AddressSanitizer, where a pool overrun becomes a report
+# instead of silent memory corruption
+gfx_pool_test_asan: gfx_pool_test.c $(GFX_SRCS)
+	$(CC) $(CFLAGS) -fsanitize=address -fno-omit-frame-pointer -o $@ $^ -lm
+
 gfx_bench: gfx_bench.c $(ROOT)/src/pc/gfx/gfx_pc.c $(ROOT)/src/pc/gfx/gfx_dummy.c \
            $(ROOT)/src/pc/gfx/gfx_cc.c $(ROOT)/src/pc/configfile.c $(ROOT)/src/pc/fs.c
 	$(CC) $(CFLAGS) -o $@ $^ -lm
 
-check: fs_atomic_test framerate_test
+check: fs_atomic_test framerate_test gfx_pool_test
 	./fs_atomic_test
 	@echo
 	./framerate_test
+	@echo
+	./gfx_pool_test
 
 clean:
-	$(RM) $(PROGRAMS) porttest_save.bin porttest_save.bin.tmp
+	$(RM) $(PROGRAMS) gfx_pool_test_asan porttest_save.bin porttest_save.bin.tmp
 
 .PHONY: all check clean

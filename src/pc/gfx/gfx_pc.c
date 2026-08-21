@@ -1,5 +1,6 @@
 #include <math.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
@@ -18,6 +19,8 @@
 #include "../configfile.h"
 
 #define SUPPORT_CHECK(x) assert(x)
+
+#define ARRAY_COUNT(a) (sizeof(a) / sizeof((a)[0]))
 
 // SCALE_M_N: upscale/downscale M-bit integer to N-bit
 #define SCALE_5_8(VAL_) (((VAL_) * 0xFF) / 0x1F)
@@ -171,12 +174,35 @@ static void gfx_flush(void) {
     }
 }
 
+// Every rendering backend keeps a fixed pool of compiled shader programs
+// and fills it with a bare post-increment, so gfx_pc must not ask for more
+// than the smallest of those pools holds. Super Mario 64 uses a fraction of
+// this, but a display list is data, and data should not be able to walk off
+// the end of a static array.
+#define GFX_MAX_SHADER_PROGRAMS 64
+
+static uint32_t gfx_num_shader_programs;
+static struct ShaderProgram *gfx_last_shader_program;
+
 static struct ShaderProgram *gfx_lookup_or_create_shader_program(uint32_t shader_id) {
     struct ShaderProgram *prg = gfx_rapi->lookup_shader(shader_id);
     if (prg == NULL) {
+        if (gfx_num_shader_programs >= GFX_MAX_SHADER_PROGRAMS) {
+            // Out of room. Reuse the last program so the frame renders with
+            // the wrong combiner rather than corrupting the backend's pool.
+            static bool warned;
+            if (!warned) {
+                warned = true;
+                fprintf(stderr, "gfx: shader program pool exhausted (%d), reusing\n",
+                        GFX_MAX_SHADER_PROGRAMS);
+            }
+            return gfx_last_shader_program;
+        }
         gfx_rapi->unload_shader(rendering_state.shader_program);
         prg = gfx_rapi->create_and_load_new_shader(shader_id);
         rendering_state.shader_program = prg;
+        gfx_num_shader_programs++;
+        gfx_last_shader_program = prg;
     }
     return prg;
 }
@@ -238,6 +264,18 @@ static struct ColorCombiner *gfx_lookup_or_create_color_combiner(uint32_t cc_id)
         if (color_combiner_pool[i].cc_id == cc_id) {
             return prev_combiner = &color_combiner_pool[i];
         }
+    }
+    if (color_combiner_pool_size == ARRAY_COUNT(color_combiner_pool)) {
+        // Same reasoning as the shader pool above: reuse rather than write
+        // past the end. Not cached as prev_combiner, so a later frame that
+        // does have room still gets its own entry.
+        static bool warned;
+        if (!warned) {
+            warned = true;
+            fprintf(stderr, "gfx: color combiner pool exhausted (%d), reusing\n",
+                    (int) ARRAY_COUNT(color_combiner_pool));
+        }
+        return &color_combiner_pool[color_combiner_pool_size - 1];
     }
     gfx_flush();
     struct ColorCombiner *comb = &color_combiner_pool[color_combiner_pool_size++];
