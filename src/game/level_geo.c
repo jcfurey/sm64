@@ -34,15 +34,17 @@ Gfx *geo_envfx_main(s32 callContext, struct GraphNode *node, Mat4 mtxf) {
             vec3f_to_vec3s(marioPos, gPlayerCameraState->pos);
             particleList = envfx_update_particles(snowMode, marioPos, camTo, camFrom);
             if (particleList != NULL) {
-#if 0
+#ifdef HIGH_FPS_PC
+                // The persistent snow/bubble display lists are patched per
+                // sub-frame, so they are appended directly
+                gfx = particleList;
+#else
                 Mtx *mtx = alloc_display_list(sizeof(*mtx));
 
                 gfx = alloc_display_list(2 * sizeof(*gfx));
                 mtxf_to_mtx(mtx, mtxf);
                 gSPMatrix(&gfx[0], VIRTUAL_TO_PHYSICAL(mtx), G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_NOPUSH);
                 gSPBranchList(&gfx[1], VIRTUAL_TO_PHYSICAL(particleList));
-#else
-                gfx = particleList;
 #endif
                 execNode->fnNode.node.flags = (execNode->fnNode.node.flags & 0xFF) | 0x400;
             }

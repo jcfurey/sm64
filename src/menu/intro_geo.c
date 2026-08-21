@@ -10,6 +10,7 @@
 #include "types.h"
 #include "buffers/framebuffers.h"
 #include "game/game_init.h"
+#include "game/rendering_graph_node.h"
 #include "audio/external.h"
 
 // frame counts for the zoom in, hold, and zoom out of title model
@@ -36,17 +37,25 @@ static s32 sGameOverTableIndex;
 static s16 sIntroFrameCounter;
 static s32 sTmCopyrightAlpha;
 
+#ifdef HIGH_FPS_PC
 static Gfx *sIntroScalePos;
-static Vec3f sIntroScale;
+static Vec3f sIntroScalePrev;
+static Vec3f sIntroScaleCurr;
 
-void patch_title_screen_scales(void) {
+void patch_title_screen_scales_reset(void) {
+    sIntroScalePos = NULL;
+}
+
+void patch_title_screen_scales(s32 v) {
     if (sIntroScalePos != NULL) {
         Mtx *scaleMat = alloc_display_list(sizeof(*scaleMat));
-        guScale(scaleMat, sIntroScale[0], sIntroScale[1], sIntroScale[2]);
+        Vec3f scale;
+        interpolate_vectors(scale, sIntroScalePrev, sIntroScaleCurr, INTERP_FACTOR(v));
+        guScale(scaleMat, scale[0], scale[1], scale[2]);
         gSPMatrix(sIntroScalePos, scaleMat, G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_PUSH);
-        sIntroScalePos = NULL;
     }
 }
+#endif
 
 /**
  * Geo callback to render the "Super Mario 64" logo on the title screen
@@ -61,8 +70,10 @@ Gfx *geo_intro_super_mario_64_logo(s32 state, struct GraphNode *node, UNUSED voi
     f32 scaleX;
     f32 scaleY;
     f32 scaleZ;
+#ifdef HIGH_FPS_PC
     Vec3f scale;
     Vec3f scaleInterpolated;
+#endif
 
     if (state != 1) {
         sIntroFrameCounter = 0;
@@ -95,11 +106,16 @@ Gfx *geo_intro_super_mario_64_logo(s32 state, struct GraphNode *node, UNUSED voi
             scaleZ = 0.0f;
         }
 
+#ifdef HIGH_FPS_PC
         vec3f_set(scale, scaleX, scaleY, scaleZ);
-        interpolate_vectors(scaleInterpolated, sIntroScale, scale);
-        vec3f_set(sIntroScale, scaleX, scaleY, scaleZ);
+        vec3f_copy(sIntroScalePrev, sIntroScaleCurr);
+        vec3f_copy(sIntroScaleCurr, scale);
+        interpolate_vectors(scaleInterpolated, sIntroScalePrev, sIntroScaleCurr, INTERP_FACTOR(0));
         guScale(scaleMat, scaleInterpolated[0], scaleInterpolated[1], scaleInterpolated[2]);
         sIntroScalePos = dlIter;
+#else
+        guScale(scaleMat, scaleX, scaleY, scaleZ);
+#endif
 
         gSPMatrix(dlIter++, scaleMat, G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_PUSH);
         gSPDisplayList(dlIter++, &intro_seg7_dl_logo);  // draw model

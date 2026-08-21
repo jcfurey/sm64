@@ -32,12 +32,35 @@
 #define WINCLASS_NAME L"N64GAME"
 #define GFX_API_NAME "DirectX"
 
+// With frame interpolation two sub-frames are presented per game logic
+// frame, so presentation runs at twice the logic rate
+#ifdef HIGH_FPS_PC
 #ifdef VERSION_EU
 #define FRAME_INTERVAL_US_NUMERATOR 40000
 #define FRAME_INTERVAL_US_DENOMINATOR 2
 #else
 #define FRAME_INTERVAL_US_NUMERATOR 100000
 #define FRAME_INTERVAL_US_DENOMINATOR 6
+#endif
+#else
+#ifdef VERSION_EU
+#define FRAME_INTERVAL_US_NUMERATOR 40000
+#define FRAME_INTERVAL_US_DENOMINATOR 1
+#else
+#define FRAME_INTERVAL_US_NUMERATOR 100000
+#define FRAME_INTERVAL_US_DENOMINATOR 3
+#endif
+#endif
+
+#ifdef HIGH_FPS_PC
+// This backend presents at a fixed 60 fps, so it always renders two
+// sub-frames per game logic frame
+extern "C" {
+#include "../framerate.h"
+}
+static void dxgi_set_subframes(void) {
+    gMaxSubframes = 2;
+}
 #endif
 
 using namespace Microsoft::WRL; // For ComPtr
@@ -258,6 +281,9 @@ static LRESULT CALLBACK gfx_dxgi_wnd_proc(HWND h_wnd, UINT message, WPARAM w_par
 }
 
 static void gfx_dxgi_init(const char *game_name, bool start_in_fullscreen) {
+#ifdef HIGH_FPS_PC
+    dxgi_set_subframes();
+#endif
     LARGE_INTEGER qpc_init, qpc_freq;
     QueryPerformanceCounter(&qpc_init);
     QueryPerformanceFrequency(&qpc_freq);

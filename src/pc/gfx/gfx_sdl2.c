@@ -34,6 +34,10 @@
 #include "../controller/controller_touch.h"
 #endif
 
+#ifdef HIGH_FPS_PC
+#include "../framerate.h"
+#endif
+
 #ifdef ENABLE_METAL
 #define GFX_API_NAME "SDL2 - Metal"
 #else
@@ -160,7 +164,24 @@ int test_vsync(void) {
     float average = 4.0 * 1000.0 / (end - start);
 
     vsync_enabled = 1;
-    /*if (average > 27 && average < 33) {
+#ifdef HIGH_FPS_PC
+    // Swap once per rendered sub-frame; the sub-frame count absorbs the
+    // refresh rate (60 Hz -> 2, 90 Hz -> 3, 120 Hz -> 4)
+    if (average > 27 && average < 33) {
+        gMaxSubframes = 1;
+    } else if (average > 57 && average < 63) {
+        gMaxSubframes = 2;
+    } else if (average > 86 && average < 94) {
+        gMaxSubframes = 3;
+    } else if (average > 115 && average < 125) {
+        gMaxSubframes = 4;
+    } else {
+        // Unknown refresh rate: pace 60 fps with the timer
+        vsync_enabled = 0;
+        gMaxSubframes = 2;
+    }
+#else
+    if (average > 27 && average < 33) {
         SDL_GL_SetSwapInterval(1);
     } else if (average > 57 && average < 63) {
         SDL_GL_SetSwapInterval(2);
@@ -170,14 +191,8 @@ int test_vsync(void) {
         SDL_GL_SetSwapInterval(4);
     } else {
         vsync_enabled = 0;
-    }*/
-    if (average > 57 && average < 63) {
-        SDL_GL_SetSwapInterval(1);
-    } else if (average > 115 && average < 125) {
-        SDL_GL_SetSwapInterval(2);
-    } else {
-        vsync_enabled = 0;
     }
+#endif
 }
 #endif
 
@@ -222,6 +237,18 @@ static void gfx_sdl_init(const char *game_name, bool start_in_fullscreen) {
     touch_set_screen_size(drawable_w, drawable_h);
 #endif
 
+#ifdef HIGH_FPS_PC
+    {
+        // Interpolate up to the display refresh rate (60 Hz -> 2 sub-frames,
+        // 120 Hz ProMotion -> 4)
+        SDL_DisplayMode mode;
+        if (SDL_GetCurrentDisplayMode(0, &mode) == 0 && mode.refresh_rate > 0
+            && mode.refresh_rate % 30 == 0) {
+            gMaxSubframes = mode.refresh_rate / 30;
+        }
+    }
+#endif
+
     // Presentation pacing is handled by the Metal backend
     vsync_enabled = 1;
 #elif defined(TARGET_IOS)
@@ -253,7 +280,13 @@ static void gfx_sdl_init(const char *game_name, bool start_in_fullscreen) {
     }
     vsync_enabled = refresh_rate % 30 == 0;
     if (vsync_enabled) {
+#ifdef HIGH_FPS_PC
+        // One swap per rendered sub-frame
+        gMaxSubframes = refresh_rate / 30;
+        SDL_GL_SetSwapInterval(1);
+#else
         SDL_GL_SetSwapInterval(refresh_rate / 30);
+#endif
     }
 #else
     wnd = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
@@ -387,14 +420,18 @@ static bool gfx_sdl_start_frame(void) {
 
 #ifndef ENABLE_METAL
 static void sync_framerate_with_timer(void) {
-    // Number of milliseconds a frame should take (60 fps)
-    const Uint32 FRAME_TIME = 1000 / 60;
+    // Number of milliseconds a rendered frame should take
+#ifdef HIGH_FPS_PC
+    Uint32 frame_time = 1000 / (30 * gRenderSubframes);
+#else
+    const Uint32 frame_time = 1000 / 30;
+#endif
     static Uint32 last_time;
     Uint32 elapsed = SDL_GetTicks() - last_time;
 
-    if (elapsed < FRAME_TIME)
-        SDL_Delay(FRAME_TIME - elapsed);
-    last_time += FRAME_TIME;
+    if (elapsed < frame_time)
+        SDL_Delay(frame_time - elapsed);
+    last_time += frame_time;
 }
 #endif
 

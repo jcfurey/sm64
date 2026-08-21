@@ -1,6 +1,10 @@
 #ifndef TYPES_H
 #define TYPES_H
 
+#ifdef HIGH_FPS_PC
+#include "pc/framerate.h"
+#endif
+
 // This file contains various data types used in Super Mario 64 that don't yet
 // have an appropriate header.
 
@@ -117,10 +121,12 @@ struct AnimInfo {
     /*0x0A 0x42*/ u16 animTimer;
     /*0x0C 0x44*/ s32 animFrameAccelAssist;
     /*0x10 0x48*/ s32 animAccel;
+#ifdef HIGH_FPS_PC
     s16 prevAnimFrame;
     s16 prevAnimID;
     u32 prevAnimFrameTimestamp;
     struct Animation *prevAnimPtr;
+#endif
 };
 
 struct GraphNodeObject {
@@ -130,22 +136,30 @@ struct GraphNodeObject {
     /*0x19*/ s8 activeAreaIndex;
     /*0x1A*/ Vec3s angle;
     /*0x20*/ Vec3f pos;
+#ifdef HIGH_FPS_PC
     Vec3s prevAngle;
     Vec3f prevPos;
     u32 prevTimestamp;
     Vec3f prevShadowPos;
     u32 prevShadowPosTimestamp;
+#endif
     /*0x2C*/ Vec3f scale;
+#ifdef HIGH_FPS_PC
     Vec3f prevScale;
     u32 prevScaleTimestamp;
+#endif
     /*0x38*/ struct AnimInfo animInfo;
     /*0x4C*/ struct SpawnInfo *unk4C;
     /*0x50*/ Mat4 *throwMatrix; // matrix ptr
+#ifdef HIGH_FPS_PC
     Mat4 prevThrowMatrix;
     u32 prevThrowMatrixTimestamp;
-    Mat4 *throwMatrixInterpolated;
+    Mat4 *throwMatrixInterp[MAX_INTERP_FRAMES];
+#endif
     /*0x54*/ Vec3f cameraToObject;
+#ifdef HIGH_FPS_PC
     u32 skipInterpolationTimestamp;
+#endif
 };
 
 struct ObjectNode {
@@ -250,10 +264,12 @@ struct Surface {
     } normal;
     /*0x28*/ f32 originOffset;
     /*0x2C*/ struct Object *object;
+#ifdef HIGH_FPS_PC
     Vec3s prevVertex1;
     Vec3s prevVertex2;
     Vec3s prevVertex3;
     u32 modifiedTimestamp;
+#endif
 };
 
 struct MarioBodyState {

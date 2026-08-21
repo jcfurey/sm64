@@ -53,19 +53,26 @@ UNUSED static s32 sUnusedHUDValue2 = 10;
 
 static s16 sCameraHUDStatus = CAM_STATUS_NONE;
 
+#ifdef HIGH_FPS_PC
 static u32 sPowerMeterLastRenderTimestamp;
 static s16 sPowerMeterLastY;
+static f32 sPowerMeterPrevY;
 static Gfx *sPowerMeterDisplayListPos;
 
-void patch_interpolated_hud(void) {
+void patch_interpolated_hud_reset(void) {
+    sPowerMeterDisplayListPos = NULL;
+}
+
+void patch_interpolated_hud(s32 v) {
     if (sPowerMeterDisplayListPos != NULL) {
         Mtx *mtx = alloc_display_list(sizeof(Mtx));
-        guTranslate(mtx, (f32) sPowerMeterHUD.x, (f32) sPowerMeterHUD.y, 0);
+        f32 y = sPowerMeterPrevY + ((f32) sPowerMeterHUD.y - sPowerMeterPrevY) * INTERP_FACTOR(v);
+        guTranslate(mtx, (f32) sPowerMeterHUD.x, y, 0);
         gSPMatrix(sPowerMeterDisplayListPos, VIRTUAL_TO_PHYSICAL(mtx),
               G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_PUSH);
-        sPowerMeterDisplayListPos = NULL;
     }
 }
+#endif
 
 /**
  * Renders a rgba16 16x16 glyph texture from a table list.
@@ -117,21 +124,28 @@ void render_power_meter_health_segment(s16 numHealthWedges) {
  */
 void render_dl_power_meter(s16 numHealthWedges) {
     Mtx *mtx = alloc_display_list(sizeof(Mtx));
+#ifdef HIGH_FPS_PC
     f32 interpolatedY;
+#endif
 
     if (mtx == NULL) {
         return;
     }
 
+#ifdef HIGH_FPS_PC
     if (gGlobalTimer == sPowerMeterLastRenderTimestamp + 1) {
-        interpolatedY = (sPowerMeterLastY + sPowerMeterHUD.y) / 2.0f;
+        sPowerMeterPrevY = sPowerMeterLastY;
     } else {
-        interpolatedY = sPowerMeterHUD.y;
+        sPowerMeterPrevY = sPowerMeterHUD.y;
     }
+    interpolatedY = sPowerMeterPrevY + ((f32) sPowerMeterHUD.y - sPowerMeterPrevY) * INTERP_FACTOR(0);
     guTranslate(mtx, (f32) sPowerMeterHUD.x, interpolatedY, 0);
     sPowerMeterLastY = sPowerMeterHUD.y;
     sPowerMeterLastRenderTimestamp = gGlobalTimer;
     sPowerMeterDisplayListPos = gDisplayListHead;
+#else
+    guTranslate(mtx, (f32) sPowerMeterHUD.x, (f32) sPowerMeterHUD.y, 0);
+#endif
 
     gSPMatrix(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(mtx++),
               G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_PUSH);

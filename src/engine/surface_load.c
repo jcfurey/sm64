@@ -378,10 +378,12 @@ static struct Surface *read_surface_data(TerrainData *vertexData, TerrainData **
 
     surface = alloc_surface();
 
+#ifdef HIGH_FPS_PC
     vec3s_copy(surface->prevVertex1, surface->vertex1);
     vec3s_copy(surface->prevVertex2, surface->vertex2);
     vec3s_copy(surface->prevVertex3, surface->vertex3);
     surface->modifiedTimestamp = gGlobalTimer;
+#endif
 
     surface->vertex1[0] = x1;
     surface->vertex2[0] = x2;

@@ -38,6 +38,7 @@
 
 #include "compat.h"
 #include "fs.h"
+#include "framerate.h"
 
 #define CONFIG_FILE "sm64config.txt"
 
@@ -85,27 +86,56 @@ void exec_display_list(struct SPTask *spTask) {
 #define SAMPLES_LOW 528
 #endif
 
-static void patch_interpolations(void) {
-    extern void mtx_patch_interpolated(void);
-    extern void patch_screen_transition_interpolated(void);
-    extern void patch_title_screen_scales(void);
-    extern void patch_interpolated_dialog(void);
-    extern void patch_interpolated_hud(void);
-    extern void patch_interpolated_paintings(void);
-    extern void patch_interpolated_bubble_particles(void);
-    extern void patch_interpolated_snow_particles(void);
-    mtx_patch_interpolated();
-    patch_screen_transition_interpolated();
-    patch_title_screen_scales();
-    patch_interpolated_dialog();
-    patch_interpolated_hud();
-    patch_interpolated_paintings();
-    patch_interpolated_bubble_particles();
-    patch_interpolated_snow_particles();
+#ifdef HIGH_FPS_PC
+// Frames rendered per 30 Hz game logic frame; latched from gMaxSubframes
+// at the start of each logic frame so it never changes mid-frame
+s32 gRenderSubframes = 1;
+s32 gMaxSubframes = 1;
+
+// Invalidates all recorded interpolation patch positions; called before
+// each game logic frame so stale positions can never be rewritten
+static void patch_interpolations_reset(void) {
+    extern void mtx_patch_interpolated_reset(void);
+    extern void patch_screen_transition_reset(void);
+    extern void patch_title_screen_scales_reset(void);
+    extern void patch_interpolated_dialog_reset(void);
+    extern void patch_interpolated_hud_reset(void);
+    extern void patch_interpolated_paintings_reset(void);
+    mtx_patch_interpolated_reset();
+    patch_screen_transition_reset();
+    patch_title_screen_scales_reset();
+    patch_interpolated_dialog_reset();
+    patch_interpolated_hud_reset();
+    patch_interpolated_paintings_reset();
 }
+
+// Rewrites the display list for render variant v (see framerate.h)
+static void patch_interpolations(s32 v) {
+    extern void mtx_patch_interpolated(s32 v);
+    extern void patch_screen_transition_interpolated(s32 v);
+    extern void patch_title_screen_scales(s32 v);
+    extern void patch_interpolated_dialog(s32 v);
+    extern void patch_interpolated_hud(s32 v);
+    extern void patch_interpolated_paintings(s32 v);
+    extern void patch_interpolated_bubble_particles(s32 v);
+    extern void patch_interpolated_snow_particles(s32 v);
+    mtx_patch_interpolated(v);
+    patch_screen_transition_interpolated(v);
+    patch_title_screen_scales(v);
+    patch_interpolated_dialog(v);
+    patch_interpolated_hud(v);
+    patch_interpolated_paintings(v);
+    patch_interpolated_bubble_particles(v);
+    patch_interpolated_snow_particles(v);
+}
+#endif
 
 void produce_one_frame(void) {
     gfx_start_frame();
+#ifdef HIGH_FPS_PC
+    gRenderSubframes = gMaxSubframes < 1 ? 1 : (gMaxSubframes > MAX_SUBFRAMES ? MAX_SUBFRAMES : gMaxSubframes);
+    patch_interpolations_reset();
+#endif
     game_loop_one_iteration();
     
     int samples_left = audio_api->buffered();
@@ -124,10 +154,14 @@ void produce_one_frame(void) {
     
     gfx_end_frame();
 
-    gfx_start_frame();
-    patch_interpolations();
-    exec_display_list(gGfxSPTask);
-    gfx_end_frame();
+#ifdef HIGH_FPS_PC
+    for (s32 v = 1; v < gRenderSubframes; v++) {
+        gfx_start_frame();
+        patch_interpolations(v);
+        exec_display_list(gGfxSPTask);
+        gfx_end_frame();
+    }
+#endif
 }
 
 #ifdef TARGET_WEB

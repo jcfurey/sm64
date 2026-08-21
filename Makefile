@@ -24,6 +24,9 @@ TARGET_IOS ?= 0
 # Compile the platform layer (src/pc) with -Wall -Wextra -Wpedantic.
 # The decompiled game code predates these warnings and is left alone.
 PEDANTIC ?= 0
+# Render interpolated frames between the 30 Hz game logic frames, matching
+# the display refresh rate up to 120 Hz (ports only; game logic unchanged)
+HIGH_FPS ?= 1
 # Compiler to use (ido or gcc)
 
 ifeq ($(TARGET_IOS),1)
@@ -111,6 +114,12 @@ endif
 
 ifeq ($(COMPILER),gcc)
   NON_MATCHING := 1
+endif
+
+ifeq ($(TARGET_N64),0)
+  ifeq ($(HIGH_FPS),1)
+    DEFINES += HIGH_FPS_PC=1
+  endif
 endif
 
 # VERSION - selects the version of the game to build

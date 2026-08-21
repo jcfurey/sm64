@@ -130,41 +130,56 @@ u8 gMenuHoldKeyIndex = 0;
 u8 gMenuHoldKeyTimer = 0;
 s32 gDialogResponse = DIALOG_RESPONSE_NONE;
 
+#ifdef HIGH_FPS_PC
 static Gfx *sInterpolatedDialogOffsetPos;
-static f32 sInterpolatedDialogOffset;
+static f32 sDialogOffsetPrev;
+static f32 sDialogOffsetCurr;
 static Gfx *sInterpolatedDialogRotationPos;
-static f32 sInterpolatedDialogScale;
-static f32 sInterpolatedDialogRotation;
+static f32 sDialogScalePrev;
+static f32 sDialogScaleCurr;
+static f32 sDialogRotationPrev;
+static f32 sDialogRotationCurr;
 static Gfx *sInterpolatedDialogZoomPos;
 
-void patch_interpolated_dialog(void) {
+void patch_interpolated_dialog_reset(void) {
+    sInterpolatedDialogOffsetPos = NULL;
+    sInterpolatedDialogRotationPos = NULL;
+    sInterpolatedDialogZoomPos = NULL;
+}
+
+void patch_interpolated_dialog(s32 v) {
     Mtx *matrix;
+    f32 f = INTERP_FACTOR(v);
 
     if (sInterpolatedDialogOffsetPos != NULL) {
+        f32 offset = sDialogOffsetPrev + (sDialogOffsetCurr - sDialogOffsetPrev) * f;
         matrix = (Mtx *) alloc_display_list(sizeof(Mtx));
-        guTranslate(matrix, 0, sInterpolatedDialogOffset, 0);
+        guTranslate(matrix, 0, offset, 0);
         gSPMatrix(sInterpolatedDialogOffsetPos, VIRTUAL_TO_PHYSICAL(matrix), G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_NOPUSH);
-        sInterpolatedDialogOffsetPos = NULL;
     }
     if (sInterpolatedDialogRotationPos != NULL) {
+        Gfx *pos = sInterpolatedDialogRotationPos;
+        f32 scale = sDialogScalePrev + (sDialogScaleCurr - sDialogScalePrev) * f;
+        f32 rotation = sDialogRotationPrev + (sDialogRotationCurr - sDialogRotationPrev) * f;
         matrix = (Mtx *) alloc_display_list(sizeof(Mtx));
-        guScale(matrix, 1.0 / sInterpolatedDialogScale, 1.0 / sInterpolatedDialogScale, 1.0f);
-        gSPMatrix(sInterpolatedDialogRotationPos++, VIRTUAL_TO_PHYSICAL(matrix), G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_NOPUSH);
+        guScale(matrix, 1.0 / scale, 1.0 / scale, 1.0f);
+        gSPMatrix(pos++, VIRTUAL_TO_PHYSICAL(matrix), G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_NOPUSH);
         matrix = (Mtx *) alloc_display_list(sizeof(Mtx));
-        guRotate(matrix, sInterpolatedDialogRotation * 4.0f, 0, 0, 1.0f);
-        gSPMatrix(sInterpolatedDialogRotationPos, VIRTUAL_TO_PHYSICAL(matrix), G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_NOPUSH);
-        sInterpolatedDialogRotationPos = NULL;
+        guRotate(matrix, rotation * 4.0f, 0, 0, 1.0f);
+        gSPMatrix(pos, VIRTUAL_TO_PHYSICAL(matrix), G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_NOPUSH);
     }
     if (sInterpolatedDialogZoomPos != NULL) {
+        Gfx *pos = sInterpolatedDialogZoomPos;
+        f32 scale = sDialogScalePrev + (sDialogScaleCurr - sDialogScalePrev) * f;
         matrix = (Mtx *) alloc_display_list(sizeof(Mtx));
-        guTranslate(matrix, 65.0 - (65.0 / sInterpolatedDialogScale), (40.0 / sInterpolatedDialogScale) - 40, 0);
-        gSPMatrix(sInterpolatedDialogZoomPos++, VIRTUAL_TO_PHYSICAL(matrix), G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_NOPUSH);
+        guTranslate(matrix, 65.0 - (65.0 / scale), (40.0 / scale) - 40, 0);
+        gSPMatrix(pos++, VIRTUAL_TO_PHYSICAL(matrix), G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_NOPUSH);
         matrix = (Mtx *) alloc_display_list(sizeof(Mtx));
-        guScale(matrix, 1.0 / sInterpolatedDialogScale, 1.0 / sInterpolatedDialogScale, 1.0f);
-        gSPMatrix(sInterpolatedDialogZoomPos, VIRTUAL_TO_PHYSICAL(matrix), G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_NOPUSH);
-        sInterpolatedDialogZoomPos = NULL;
+        guScale(matrix, 1.0 / scale, 1.0 / scale, 1.0f);
+        gSPMatrix(pos, VIRTUAL_TO_PHYSICAL(matrix), G_MTX_MODELVIEW | G_MTX_MUL | G_MTX_NOPUSH);
     }
 }
+#endif
 
 void create_dl_identity_matrix(void) {
     Mtx *matrix = (Mtx *) alloc_display_list(sizeof(Mtx));
@@ -1179,31 +1194,46 @@ void render_dialog_box_type(struct DialogEntry *dialog, s8 linesPerBox) {
     switch (gDialogBoxType) {
         case DIALOG_TYPE_ROTATE: // Renders a dialog black box with zoom and rotation
             if (gMenuState == MENU_STATE_DIALOG_OPENING || gMenuState == MENU_STATE_DIALOG_CLOSING) {
+#ifdef HIGH_FPS_PC
                 sInterpolatedDialogRotationPos = gDisplayListHead;
+                sDialogScaleCurr = gDialogBoxScale;
+                sDialogRotationCurr = gDialogBoxAngle;
+                // The box shrinks by 2 and rotates by 7.5 degrees per frame
+                // while opening, and the reverse while closing
                 if (gMenuState == MENU_STATE_DIALOG_OPENING) {
-                    sInterpolatedDialogScale = gDialogBoxScale - 2 / 2;
-                    sInterpolatedDialogRotation = gDialogBoxAngle - 7.5f / 2;
+                    sDialogScalePrev = gDialogBoxScale + 2.0f;
+                    sDialogRotationPrev = gDialogBoxAngle + 7.5f;
                 } else {
-                    sInterpolatedDialogScale = gDialogBoxScale + 2 / 2;
-                    sInterpolatedDialogRotation = gDialogBoxAngle + 7.5f / 2;
+                    sDialogScalePrev = gDialogBoxScale - 2.0f;
+                    sDialogRotationPrev = gDialogBoxAngle - 7.5f;
                 }
+#endif
                 create_dl_scale_matrix(MENU_MTX_NOPUSH, 1.0 / gDialogBoxScale, 1.0 / gDialogBoxScale, 1.0f);
                 // convert the speed into angle
                 create_dl_rotation_matrix(MENU_MTX_NOPUSH, gDialogBoxAngle * 4.0f, 0, 0, 1.0f);
+#ifdef HIGH_FPS_PC
+                patch_interpolated_dialog(0);
+#endif
             }
             gDPSetEnvColor(gDisplayListHead++, 0, 0, 0, 150);
             break;
         case DIALOG_TYPE_ZOOM: // Renders a dialog white box with zoom
             if (gMenuState == MENU_STATE_DIALOG_OPENING || gMenuState == MENU_STATE_DIALOG_CLOSING) {
+#ifdef HIGH_FPS_PC
                 sInterpolatedDialogZoomPos = gDisplayListHead;
+                sDialogScaleCurr = gDialogBoxScale;
                 if (gMenuState == MENU_STATE_DIALOG_OPENING) {
-                    sInterpolatedDialogScale = gDialogBoxScale - 2 / 2;
+                    sDialogScalePrev = gDialogBoxScale + 2.0f;
                 } else {
-                    sInterpolatedDialogScale = gDialogBoxScale + 2 / 2;
+                    sDialogScalePrev = gDialogBoxScale - 2.0f;
                 }
+#endif
                 create_dl_translation_matrix(MENU_MTX_NOPUSH, 65.0 - (65.0 / gDialogBoxScale),
                                               (40.0 / gDialogBoxScale) - 40, 0);
                 create_dl_scale_matrix(MENU_MTX_NOPUSH, 1.0 / gDialogBoxScale, 1.0 / gDialogBoxScale, 1.0f);
+#ifdef HIGH_FPS_PC
+                patch_interpolated_dialog(0);
+#endif
             }
             gDPSetEnvColor(gDisplayListHead++, 255, 255, 255, 150);
             break;
@@ -1491,9 +1521,16 @@ void handle_dialog_text_and_pages(s8 colorMode, struct DialogEntry *dialog, s8 l
 #ifdef VERSION_EU
         gDialogY -= gDialogScrollOffsetY;
 #else
-        sInterpolatedDialogOffset = gDialogScrollOffsetY + dialog->linesPerBox;
+#ifdef HIGH_FPS_PC
         sInterpolatedDialogOffsetPos = gDisplayListHead;
+        // The text scrolls up by 2 * linesPerBox per frame
+        sDialogOffsetCurr = gDialogScrollOffsetY;
+        sDialogOffsetPrev = gDialogScrollOffsetY + 2 * dialog->linesPerBox;
+#endif
         create_dl_translation_matrix(MENU_MTX_NOPUSH, 0, (f32) gDialogScrollOffsetY, 0);
+#ifdef HIGH_FPS_PC
+        patch_interpolated_dialog(0);
+#endif
 #endif
     }
 

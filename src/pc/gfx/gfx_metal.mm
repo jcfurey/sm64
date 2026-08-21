@@ -38,6 +38,10 @@ void *gfx_sdl_get_metal_layer(void);
 // interleaved [x, y, r, g, b, a] per vertex
 const float *touch_overlay_build(int width, int height, int *num_verts);
 #endif
+
+#ifdef HIGH_FPS_PC
+#include "../framerate.h"
+#endif
 }
 
 #define MAX_FRAMES_IN_FLIGHT 3
@@ -640,6 +644,10 @@ static void gfx_metal_init(void) {
     mtl.layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
     mtl.layer.framebufferOnly = YES;
 
+    // Two drawables keep presentation latency at its minimum; nextDrawable
+    // blocking is what paces the game loop
+    mtl.layer.maximumDrawableCount = 2;
+
     mtl.queue = [mtl.device newCommandQueue];
     mtl.frame_semaphore = dispatch_semaphore_create(MAX_FRAMES_IN_FLIGHT);
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
@@ -786,9 +794,14 @@ void gfx_metal_present(void) {
         return;
     }
 
-    // Pace presentation to the game's native frame rate; nextDrawable in
-    // start_frame blocks when the queue is full, throttling the game loop
-    [mtl.command_buffer presentDrawable:mtl.drawable afterMinimumDuration:1.0 / GAME_FRAMERATE];
+    // Pace presentation to the render rate (logic rate times sub-frames);
+    // nextDrawable in start_frame blocks when the queue is full, throttling
+    // the game loop
+    double render_fps = GAME_FRAMERATE;
+#ifdef HIGH_FPS_PC
+    render_fps *= gRenderSubframes;
+#endif
+    [mtl.command_buffer presentDrawable:mtl.drawable afterMinimumDuration:1.0 / render_fps];
     [mtl.command_buffer addCompletedHandler:^(id<MTLCommandBuffer> cb) {
         dispatch_semaphore_signal(mtl.frame_semaphore);
     }];

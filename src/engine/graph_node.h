@@ -2,6 +2,10 @@
 #define GRAPH_NODE_H
 
 #include <PR/ultratypes.h>
+
+#ifdef HIGH_FPS_PC
+#include "pc/framerate.h"
+#endif
 #include <PR/gbi.h>
 
 #include "types.h"
@@ -105,8 +109,10 @@ struct GraphNodePerspective {
     /*0x1C*/ f32 fov;   // horizontal field of view in degrees
     /*0x20*/ s16 near;  // near clipping plane
     /*0x22*/ s16 far;   // far clipping plane
+#ifdef HIGH_FPS_PC
     f32 prevFov;
-    f32 prevTimestamp;
+    u32 prevTimestamp;
+#endif
 };
 
 /** An entry in the master list. It is a linked list of display lists
@@ -114,9 +120,11 @@ struct GraphNodePerspective {
  */
 struct DisplayListNode {
     Mtx *transform;
-    void *transformInterpolated;
     void *displayList;
-    void *displayListInterpolated;
+#ifdef HIGH_FPS_PC
+    void *transformInterp[MAX_INTERP_FRAMES];
+    void *displayListInterp[MAX_INTERP_FRAMES];
+#endif
     struct DisplayListNode *next;
 };
 
@@ -178,11 +186,15 @@ struct GraphNodeCamera {
     } config;
     /*0x1C*/ Vec3f pos;
     /*0x28*/ Vec3f focus;
+#ifdef HIGH_FPS_PC
     Vec3f prevPos;
     Vec3f prevFocus;
     u32 prevTimestamp;
+#endif
     /*0x34*/ Mat4 *matrixPtr; // pointer to look-at matrix of this camera as a Mat4
-    Mat4 *matrixPtrInterpolated;
+#ifdef HIGH_FPS_PC
+    Mat4 *matrixPtrInterp[MAX_INTERP_FRAMES];
+#endif
     /*0x38*/ s16 roll; // roll in look at matrix. Doesn't account for light direction unlike rollScreen.
     /*0x3A*/ s16 rollScreen; // rolls screen while keeping the light direction consistent
 };
@@ -221,8 +233,10 @@ struct GraphNodeRotation {
     /*0x14*/ void *displayList;
     /*0x18*/ Vec3s rotation;
     u8 filler[2];
+#ifdef HIGH_FPS_PC
     Vec3s prevRotation;
     u32 prevTimestamp;
+#endif
 };
 
 /** GraphNode part that transforms itself and its children based on animation
@@ -311,9 +325,11 @@ struct GraphNodeBackground {
     /*0x00*/ struct FnGraphNode fnNode;
     /*0x18*/ s32 unused;
     /*0x1C*/ s32 background; // background ID, or rgba5551 color if fnNode.func is null
+#ifdef HIGH_FPS_PC
     Vec3f prevCameraPos;
     Vec3f prevCameraFocus;
     u32 prevCameraTimestamp;
+#endif
 };
 
 /** Renders the object that Mario is holding.

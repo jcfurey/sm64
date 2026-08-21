@@ -189,31 +189,54 @@ struct Painting **sPaintingGroups[] = {
 s16 gPaintingUpdateCounter = 1;
 s16 gLastPaintingUpdateCounter = 0;
 
-static Vtx sLastVertices[2 * 264 * 3];
+#ifdef HIGH_FPS_PC
+// Previous and current frame vertex snapshots for the rippling painting
+// meshes; live display list vertices are rewritten per render variant
+static Vtx sPrevVertices[2 * 264 * 3];
+static Vtx sCurrVertices[2 * 264 * 3];
 static u32 sLastVerticesTimestamp;
+static s32 sVerticesInterp;
 static Vtx *sVerticesPtr[2];
 static s32 sVerticesCount;
 
-void patch_interpolated_paintings(void) {
+void patch_interpolated_paintings_reset(void) {
+    sVerticesPtr[0] = NULL;
+    sVerticesPtr[1] = NULL;
+    sVerticesCount = 0;
+}
+
+static void paintings_write_vertex(Vtx *dest, s32 idx, f32 f) {
+    s32 i;
+    *dest = sCurrVertices[idx];
+    if (sVerticesInterp) {
+        for (i = 0; i < 3; i++) {
+            dest->n.ob[i] = sPrevVertices[idx].n.ob[i]
+                            + (s16)((sCurrVertices[idx].n.ob[i] - sPrevVertices[idx].n.ob[i]) * f);
+            dest->n.n[i] = sPrevVertices[idx].n.n[i]
+                           + (s8)((sCurrVertices[idx].n.n[i] - sPrevVertices[idx].n.n[i]) * f);
+        }
+    }
+}
+
+void patch_interpolated_paintings(s32 v) {
     if (sVerticesPtr[0] != NULL) {
         s32 i;
+        f32 f = INTERP_FACTOR(v);
         if (sVerticesPtr[1] != NULL) {
             for (i = 0; i < sVerticesCount / 2; i++) {
-                sVerticesPtr[0][i] = sLastVertices[i];
+                paintings_write_vertex(&sVerticesPtr[0][i], i, f);
             }
             for (; i < sVerticesCount; i++) {
-                sVerticesPtr[1][i - sVerticesCount / 2] = sLastVertices[i];
+                paintings_write_vertex(&sVerticesPtr[1][i - sVerticesCount / 2], i, f);
             }
         } else {
             for (i = 0; i < sVerticesCount; i++) {
-                sVerticesPtr[0][i] = sLastVertices[i];
+                paintings_write_vertex(&sVerticesPtr[0][i], i, f);
             }
         }
-        sVerticesPtr[0] = NULL;
-        sVerticesPtr[1] = NULL;
-        sVerticesCount = 0;
     }
 }
+#endif
 
 /**
  * Stop paintings in paintingGroup from rippling if their id is different from *idptr.
@@ -925,22 +948,20 @@ Gfx *render_painting(u8 *img, s16 tWidth, s16 tHeight, s16 *textureMap, s16 mapV
         gSP1Triangle(gfx++, group * 3, group * 3 + 1, group * 3 + 2, 0);
     }
 
+#ifdef HIGH_FPS_PC
     if (sVerticesCount >= numVtx * 2) {
         sVerticesCount = 0;
     }
+    sVerticesInterp = gGlobalTimer == sLastVerticesTimestamp + 1;
     for (map = 0; map < numVtx; map++) {
-        Vtx v = verts[map];
-        if (gGlobalTimer == sLastVerticesTimestamp + 1) {
-            s32 i;
-            for (i = 0; i < 3; i++) {
-                verts[map].n.ob[i] = (v.n.ob[i] + sLastVertices[sVerticesCount + map].n.ob[i]) / 2;
-                verts[map].n.n[i] = (v.n.n[i] + sLastVertices[sVerticesCount + map].n.n[i]) / 2;
-            }
-        }
-        sLastVertices[sVerticesCount + map] = v;
+        // Rotate the previous frame's snapshot in and store the new one
+        sPrevVertices[sVerticesCount + map] = sCurrVertices[sVerticesCount + map];
+        sCurrVertices[sVerticesCount + map] = verts[map];
+        paintings_write_vertex(&verts[map], sVerticesCount + map, INTERP_FACTOR(0));
     }
     sVerticesPtr[sVerticesCount / numVtx] = verts;
     sVerticesCount += numVtx;
+#endif
 
     gSPEndDisplayList(gfx);
     return dlist;
@@ -1006,7 +1027,9 @@ Gfx *painting_ripple_image(struct Painting *painting) {
         meshTris = textureMap[meshVerts * 3 + 1];
         gSPDisplayList(gfx++, render_painting(textures[i], tWidth, tHeight, textureMap, meshVerts, meshTris, painting->alpha));
     }
+#ifdef HIGH_FPS_PC
     sLastVerticesTimestamp = gGlobalTimer;
+#endif
 
     // Update the ripple, may automatically reset the painting's state.
     painting_update_ripple_state(painting);
@@ -1044,7 +1067,9 @@ Gfx *painting_ripple_env_mapped(struct Painting *painting) {
     meshVerts = textureMap[0];
     meshTris = textureMap[meshVerts * 3 + 1];
     gSPDisplayList(gfx++, render_painting(tArray[0], tWidth, tHeight, textureMap, meshVerts, meshTris, painting->alpha));
+#ifdef HIGH_FPS_PC
     sLastVerticesTimestamp = gGlobalTimer;
+#endif
 
     // Update the ripple, may automatically reset the painting's state.
     painting_update_ripple_state(painting);

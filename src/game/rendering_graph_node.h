@@ -28,6 +28,16 @@ extern u16 gAreaUpdateCounter;
 #define ANIM_TYPE_ROTATION              5
 
 void geo_process_node_and_siblings(struct GraphNode *firstNode);
+
+#ifdef HIGH_FPS_PC
+// Frame interpolation support (see pc/framerate.h). The patch functions
+// rewrite the built display list for render variant v; the reset functions
+// invalidate the recorded positions at the start of each game logic frame.
+void interpolate_vectors(Vec3f res, Vec3f a, Vec3f b, f32 f);
+void interpolate_vectors_s16(Vec3s res, Vec3s a, Vec3s b, f32 f);
+void mtx_patch_interpolated(s32 v);
+void mtx_patch_interpolated_reset(void);
+#endif
 void geo_process_root(struct GraphNodeRoot *node, Vp *b, Vp *c, s32 clearColor);
 
 #endif // RENDERING_GRAPH_NODE_H
