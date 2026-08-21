@@ -31,6 +31,11 @@ const float *touch_overlay_build(int width, int height, int *num_verts);
 // and lifting a finger from empty space without having dragged anything
 // turns edit mode back off (and saves). The size and opacity settings live
 // in the config as configTouchScale / configTouchOpacity.
+// Drops all recorded finger state. Used when events have been missed (the
+// app was suspended), where a finger recorded as down would otherwise hold
+// its button forever.
+void touch_forget_fingers(void);
+
 void touch_layout_edit_set(bool on);
 bool touch_layout_edit_active(void);
 void touch_layout_reset(void);

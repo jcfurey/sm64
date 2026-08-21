@@ -64,6 +64,10 @@ struct ShaderProgram {
 
 static struct ShaderProgram shader_program_pool[64];
 static uint8_t shader_program_pool_size;
+
+_Static_assert(sizeof(shader_program_pool) / sizeof(shader_program_pool[0]) >= GFX_MAX_SHADER_PROGRAMS,
+               "shader program pool is smaller than gfx_pc will fill");
+
 static GLuint opengl_vbo;
 
 static uint32_t frame_count;

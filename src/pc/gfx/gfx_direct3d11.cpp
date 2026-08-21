@@ -129,6 +129,10 @@ static struct {
     D3D_PRIMITIVE_TOPOLOGY last_primitive_topology = D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
 } d3d;
 
+static_assert(sizeof(d3d.shader_program_pool) / sizeof(d3d.shader_program_pool[0])
+                  >= GFX_MAX_SHADER_PROGRAMS,
+              "shader program pool is smaller than gfx_pc will fill");
+
 static LARGE_INTEGER last_time, accumulated_time, frequency;
 
 static void create_render_target_views(bool is_resize) {

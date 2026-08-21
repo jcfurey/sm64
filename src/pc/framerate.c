@@ -39,7 +39,7 @@ s32 gSubframesLocked = 0;
 //------------------------------------------------------------------------------
 // Adaptive sub-frame backoff
 //
-// Sub-frames are rendered inside the same 1/30 s that the game logic runs
+// Sub-frames are rendered inside the same logic frame that the game runs
 // in, so a device that cannot draw them all does not simply show fewer
 // frames: the logic frames themselves start arriving late and the whole
 // game runs in slow motion. Watch how long each logic frame actually takes
@@ -47,8 +47,10 @@ s32 gSubframesLocked = 0;
 // long clean stretch so one hitch does not cost the frame rate for good.
 //------------------------------------------------------------------------------
 
-// A logic frame should take 1/30 s; allow some headroom before calling it late
-#define FRAME_LATE_MS 40
+// A logic frame should take 1/GAME_FRAMERATE seconds; allow a fifth of that
+// again as headroom before calling one late
+#define FRAME_PERIOD_MS (1000 / GAME_FRAMERATE)
+#define FRAME_LATE_MS (FRAME_PERIOD_MS + FRAME_PERIOD_MS / 5)
 
 // Past this a frame is a discontinuity (level load, resuming from the
 // background) rather than the renderer failing to keep up
@@ -126,7 +128,7 @@ s32 framerate_choose_subframes(void) {
         return max;
     }
     if (configFrameCap != 0) {
-        want = configFrameCap / 30;
+        want = configFrameCap / GAME_FRAMERATE;
     }
     if (configRetroMode) {
         want = 1;

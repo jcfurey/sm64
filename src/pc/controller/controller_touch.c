@@ -86,14 +86,21 @@ static const char *const touch_button_names[TOUCH_BUTTON_COUNT] = {
 enum FingerRole {
     ROLE_NONE,
     ROLE_STICK,
-    ROLE_BUTTON
+    ROLE_BUTTON,
+    // Layout edit mode. The role is decided when the finger lands, so a
+    // finger that was already down when edit mode was switched on -- the
+    // one that pressed A to switch it on -- is neither a drag nor the tap
+    // that ends editing.
+    ROLE_LAYOUT_DRAG,
+    ROLE_LAYOUT_TAP
 };
 
 struct Finger {
     bool active;
     long long id;
     enum FingerRole role;
-    int button; // valid when role == ROLE_BUTTON
+    int button; // valid when role is ROLE_BUTTON or ROLE_LAYOUT_DRAG
+    bool moved; // this finger has dragged something
     float x, y; // normalized position
     float origin_x, origin_y; // stick neutral position (normalized)
 };
@@ -134,19 +141,43 @@ static struct Finger *alloc_finger(long long id) {
 
 #define TOUCH_LAYOUT_FILE "sm64_touch_layout.txt"
 
-// Keep a dragged button wholly on screen
-#define LAYOUT_MIN_X 0.03f
-#define LAYOUT_MAX_X 0.97f
-#define LAYOUT_MIN_Y 0.05f
-#define LAYOUT_MAX_Y 0.95f
 
 static bool layout_edit_mode;
-static int layout_drag_button = -1;
-static bool layout_drag_moved;
 static bool layout_dirty;
+
+// The button currently being dragged, or -1
+static int layout_dragged_button(void) {
+    for (int i = 0; i < MAX_FINGERS; i++) {
+        if (fingers[i].active && fingers[i].role == ROLE_LAYOUT_DRAG) {
+            return fingers[i].button;
+        }
+    }
+    return -1;
+}
 
 static float clampf(float v, float lo, float hi) {
     return v < lo ? lo : (v > hi ? hi : v);
+}
+
+// Places a dragged button at (x, y), kept far enough from each edge that
+// the whole circle stays on screen. The margin has to come from the drawn
+// radius -- which the size setting scales -- rather than a fixed fraction,
+// and the horizontal one has to be converted from a height fraction to a
+// width fraction or it is wrong on every aspect ratio but 1:1.
+static float button_radius(const struct TouchButton *b);
+
+static void layout_place_button(struct TouchButton *b, float x, float y) {
+    float marginY = button_radius(b) / (float) screen_height;
+    float marginX = button_radius(b) / (float) screen_width;
+
+    if (marginY > 0.45f) {
+        marginY = 0.45f;
+    }
+    if (marginX > 0.45f) {
+        marginX = 0.45f;
+    }
+    b->cx = clampf(x, marginX, 1.0f - marginX);
+    b->cy = clampf(y, marginY, 1.0f - marginY);
 }
 
 void touch_layout_reset(void) {
@@ -219,7 +250,6 @@ void touch_layout_edit_set(bool on) {
         return;
     }
     layout_edit_mode = on;
-    layout_drag_button = -1;
     if (!on) {
         touch_layout_save();
     }
@@ -264,6 +294,7 @@ void touch_down(long long finger_id, float x, float y) {
     f->x = x;
     f->y = y;
     f->role = ROLE_NONE;
+    f->moved = false;
 
     if (layout_edit_mode) {
         // Grab a button to reposition it. A touch that lands on nothing is
@@ -271,13 +302,12 @@ void touch_down(long long finger_id, float x, float y) {
         // having dragged anything.
         for (int i = 0; i < TOUCH_BUTTON_COUNT; i++) {
             if (hit_button(&touch_buttons[i], x, y)) {
-                layout_drag_button = i;
-                layout_drag_moved = false;
+                f->role = ROLE_LAYOUT_DRAG;
+                f->button = i;
                 return;
             }
         }
-        layout_drag_button = -1;
-        layout_drag_moved = false;
+        f->role = ROLE_LAYOUT_TAP;
         return;
     }
 
@@ -304,11 +334,9 @@ void touch_motion(long long finger_id, float x, float y) {
     f->x = x;
     f->y = y;
 
-    if (layout_edit_mode && layout_drag_button >= 0) {
-        struct TouchButton *b = &touch_buttons[layout_drag_button];
-        b->cx = clampf(x, LAYOUT_MIN_X, LAYOUT_MAX_X);
-        b->cy = clampf(y, LAYOUT_MIN_Y, LAYOUT_MAX_Y);
-        layout_drag_moved = true;
+    if (f->role == ROLE_LAYOUT_DRAG) {
+        layout_place_button(&touch_buttons[f->button], x, y);
+        f->moved = true;
         layout_dirty = true;
     }
 }
@@ -316,18 +344,22 @@ void touch_motion(long long finger_id, float x, float y) {
 void touch_up(long long finger_id) {
     struct Finger *f = find_finger(finger_id);
 
-    if (layout_edit_mode) {
-        if (layout_drag_button < 0 && !layout_drag_moved) {
-            // Lifted from empty space without having moved anything
+    if (f != NULL) {
+        // Only a finger that both landed and lifted inside edit mode ends
+        // it; the one that pressed A to start editing is still down here
+        // and must not count. Nor should a resting palm end the mode out
+        // from under a drag another finger is in the middle of.
+        if (f->role == ROLE_LAYOUT_TAP && !f->moved && layout_dragged_button() < 0) {
             touch_layout_edit_set(false);
         }
-        layout_drag_button = -1;
-    }
-
-    if (f != NULL) {
         f->active = false;
         f->role = ROLE_NONE;
+        f->moved = false;
     }
+}
+
+void touch_forget_fingers(void) {
+    memset(fingers, 0, sizeof(fingers));
 }
 
 static void touch_init(void) {
@@ -481,6 +513,7 @@ static void overlay_build(void) {
     static const float white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
     float opacity = configTouchOpacity;
     bool editing = layout_edit_mode;
+    int dragged = layout_dragged_button();
 
     overlay_num_verts = 0;
 
@@ -532,7 +565,7 @@ static void overlay_build(void) {
         float alpha;
 
         if (editing) {
-            alpha = (i == layout_drag_button) ? 0.85f : 0.45f;
+            alpha = (i == dragged) ? 0.85f : 0.45f;
         } else {
             alpha = (button_is_held(i) ? 0.55f : 0.28f) * opacity;
         }

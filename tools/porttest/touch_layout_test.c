@@ -60,13 +60,33 @@ int main(void) {
     configTouchScale = 1.0f;
     CHECK(!smallFar && largeFar, "the size setting scales the hit area");
 
+    // Edit mode is switched on by pressing the on-screen A button, so the
+    // finger that turned it on is still down when it starts. Its lift must
+    // not be mistaken for the empty-space tap that ends editing, or the
+    // feature is unreachable by touch -- which is the only input an iOS
+    // player has.
+    touch_down(9, A_X, A_Y);
+    touch_layout_edit_set(true);
+    touch_up(9);
+    CHECK(touch_layout_edit_active(), "the finger that enabled edit mode does not cancel it");
+    touch_layout_edit_set(false);
+
     // Dragging in edit mode moves a button and does not press it
     touch_layout_edit_set(true);
     CHECK(touch_layout_edit_active(), "edit mode turns on");
+
+    // A second touch landing on empty space (a resting palm) must not
+    // cancel a drag that another finger is in the middle of
+    touch_down(7, A_X, A_Y);
+    touch_motion(7, 0.50f, 0.50f);
+    touch_down(8, 0.10f, 0.90f);
+    touch_up(8);
+    CHECK(touch_layout_edit_active(), "a stray second touch does not end a drag in progress");
+    touch_up(7);
     {
         OSContPad pad;
         memset(&pad, 0, sizeof(pad));
-        touch_down(2, A_X, A_Y);
+        touch_down(2, 0.50f, 0.50f);
         touch_motion(2, 0.30f, 0.40f);
         controller_touch.read(&pad);
         CHECK(pad.button == 0, "dragging a button does not press it");

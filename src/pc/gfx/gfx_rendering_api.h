@@ -7,6 +7,12 @@
 
 struct ShaderProgram;
 
+// The most shader programs gfx_pc will ever ask a backend to create.
+// Backends keep fixed-size pools and fill them with a bare post-increment,
+// so each one static-asserts its pool is at least this large; that way
+// shrinking a pool is a build error rather than a silent overrun.
+#define GFX_MAX_SHADER_PROGRAMS 64
+
 struct GfxRenderingAPI {
     bool (*z_is_from_0_to_1)(void);
     void (*unload_shader)(struct ShaderProgram *old_prg);

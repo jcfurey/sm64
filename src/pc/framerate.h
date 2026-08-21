@@ -32,6 +32,16 @@ extern s32 gMaxSubframes;
 // lower sub-frame count (glx, dxgi)
 extern s32 gSubframesLocked;
 
+// The rate the game's logic runs at, which the EU release halves from the
+// 50 Hz PAL field rate rather than the 60 Hz NTSC one. Everything that
+// converts between frame caps, sub-frame counts and real time has to go
+// through this rather than assuming 30.
+#ifdef VERSION_EU
+#define GAME_FRAMERATE 25
+#else
+#define GAME_FRAMERATE 30
+#endif
+
 // Maximum supported sub-frames per logic frame (120 Hz displays)
 #define MAX_SUBFRAMES 4
 // Maximum interpolated (non-final) variants

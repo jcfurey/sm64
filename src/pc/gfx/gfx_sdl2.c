@@ -404,6 +404,10 @@ static void quit_now(void) {
 // loop drains the battery for a game nobody is looking at, so block on the
 // event queue (which keeps pumping the platform run loop) until the system
 // brings us back.
+//
+// Everything else delivered while parked is consumed by this loop and never
+// reaches the normal handler, so anything it would have updated has to be
+// re-established on the way out rather than assumed unchanged.
 static void wait_for_foreground(void) {
     SDL_Event event;
 
@@ -422,6 +426,27 @@ static void wait_for_foreground(void) {
 
 #ifdef TARGET_IOS
     audio_sdl_pause(false);
+
+    // Touch-cancel and finger-up events raised as iOS took the touch stream
+    // away were consumed above, so any finger still recorded as down would
+    // stay down forever, holding its button
+    touch_forget_fingers();
+
+    // A rotation while suspended raises SIZE_CHANGED into the same discarded
+    // stream; re-read the drawable rather than trusting the old size
+    {
+        int w = 0, h = 0;
+#ifdef ENABLE_METAL
+        SDL_Metal_GetDrawableSize(wnd, &w, &h);
+#else
+        SDL_GL_GetDrawableSize(wnd, &w, &h);
+#endif
+        if (w > 0 && h > 0) {
+            window_width = w;
+            window_height = h;
+            touch_set_screen_size(w, h);
+        }
+    }
 #endif
 #ifdef HIGH_FPS_PC
     // Frame timings measured either side of a suspension say nothing about
@@ -500,9 +525,9 @@ static bool gfx_sdl_start_frame(void) {
 static void sync_framerate_with_timer(void) {
     // Number of milliseconds a rendered frame should take
 #ifdef HIGH_FPS_PC
-    Uint32 frame_time = 1000 / (30 * gRenderSubframes);
+    Uint32 frame_time = 1000 / (GAME_FRAMERATE * gRenderSubframes);
 #else
-    const Uint32 frame_time = 1000 / 30;
+    const Uint32 frame_time = 1000 / 30; // HIGH_FPS off: vanilla 30 fps pacing
 #endif
     static Uint32 last_time;
     Uint32 elapsed = SDL_GetTicks() - last_time;

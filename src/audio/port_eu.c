@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "internal.h"
 #include "load.h"
+#include "heap.h" // audio_reset_session
 #include "data.h"
 #include "seqplayer.h"
 #include "synthesis.h"

@@ -169,6 +169,10 @@ static struct {
     CD3DX12_RECT scissor;
 } d3d;
 
+static_assert(sizeof(d3d.shader_program_pool) / sizeof(d3d.shader_program_pool[0])
+                  >= GFX_MAX_SHADER_PROGRAMS,
+              "shader program pool is smaller than gfx_pc will fill");
+
 static int texture_uploads = 0;
 static int max_texture_uploads;
 

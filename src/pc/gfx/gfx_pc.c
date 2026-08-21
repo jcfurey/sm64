@@ -174,13 +174,9 @@ static void gfx_flush(void) {
     }
 }
 
-// Every rendering backend keeps a fixed pool of compiled shader programs
-// and fills it with a bare post-increment, so gfx_pc must not ask for more
-// than the smallest of those pools holds. Super Mario 64 uses a fraction of
-// this, but a display list is data, and data should not be able to walk off
-// the end of a static array.
-#define GFX_MAX_SHADER_PROGRAMS 64
-
+// GFX_MAX_SHADER_PROGRAMS (gfx_rendering_api.h) is the shared bound: every
+// backend static-asserts its pool against it, so this cannot drift from the
+// arrays it protects.
 static uint32_t gfx_num_shader_programs;
 static struct ShaderProgram *gfx_last_shader_program;
 
@@ -523,6 +519,22 @@ static void import_texture(int tile) {
     uint8_t siz = rdp.texture_tile.siz;
 
     if (gfx_texture_cache_lookup(tile, &rendering_state.textures[tile], rdp.loaded_texture[tile].addr, fmt, siz)) {
+        return;
+    }
+
+    // A display list can ask to sample a texture the RDP state cannot
+    // actually describe. None of these are reachable from the game's own
+    // data, but the interpreter is fed data, and data must not decide
+    // whether the process survives:
+    //   - no image loaded at all, so there is nothing to decode
+    //   - a tile whose line size is zero, which every decoder below divides
+    //     by to work out the height
+    //   - a colour-indexed format before any G_LOADTLUT, leaving the
+    //     palette pointer NULL for the decoder to walk
+    if (rdp.loaded_texture[tile].addr == NULL
+        || rdp.texture_tile.line_size_bytes == 0
+        || (fmt == G_IM_FMT_CI && rdp.palette == NULL)) {
+        import_texture_placeholder();
         return;
     }
 
@@ -872,7 +884,10 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
     
     for (int i = 0; i < 2; i++) {
         if (used_textures[i]) {
-            if (rdp.textures_changed[i]) {
+            // The NULL check matters when a combiner samples a texture
+            // before any load command has run: the slot would otherwise
+            // still be empty when it is dereferenced just below
+            if (rdp.textures_changed[i] || rendering_state.textures[i] == NULL) {
                 gfx_flush();
                 import_texture(i);
                 rdp.textures_changed[i] = false;

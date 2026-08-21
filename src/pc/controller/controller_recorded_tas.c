@@ -25,6 +25,7 @@ static void tas_read(OSContPad *pad) {
         if (fread(bytes, 1, 4, fp) != 4) {
             fclose(fp);
             fp = NULL;
+            return; // a partial record is not input
         }
         pad->button = (bytes[0] << 8) | bytes[1];
         pad->stick_x = bytes[2];

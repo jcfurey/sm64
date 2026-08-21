@@ -39,9 +39,9 @@ void *gfx_sdl_get_metal_layer(void);
 const float *touch_overlay_build(int width, int height, int *num_verts);
 #endif
 
-#ifdef HIGH_FPS_PC
+// Also provides GAME_FRAMERATE, which is needed whether or not sub-frame
+// interpolation is compiled in
 #include "../framerate.h"
-#endif
 
 #include "../configfile.h"
 }
@@ -50,8 +50,6 @@ const float *touch_overlay_build(int width, int height, int *num_verts);
 // Bump-allocated per-frame vertex storage; a new buffer of this size is
 // added whenever a frame outgrows the current one
 #define VERTEX_BUFFER_SIZE (512 * 1024)
-
-#define GAME_FRAMERATE 30.0
 
 struct ShaderProgramMetal {
     uint32_t shader_id;
@@ -123,6 +121,10 @@ static struct {
     id<MTLRenderPipelineState> overlay_pipeline;
     bool overlay_pipeline_failed;
 } mtl;
+
+static_assert(sizeof(mtl.shader_program_pool) / sizeof(mtl.shader_program_pool[0])
+                  >= GFX_MAX_SHADER_PROGRAMS,
+              "shader program pool is smaller than gfx_pc will fill");
 
 //==============================================================================
 // Shader generation

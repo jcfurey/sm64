@@ -95,10 +95,13 @@ static s32 coord_to_cell(f32 coord) {
 // and letting distant geometry consume the triangle budget before nearby
 // geometry was reached.
 static void collision_view_walk_partition(SpatialPartitionCell (*partition)[NUM_CELLS], f32 x, f32 z) {
-    s32 minX = coord_to_cell(x - COLLISION_VIEW_RADIUS);
-    s32 maxX = coord_to_cell(x + COLLISION_VIEW_RADIUS);
-    s32 minZ = coord_to_cell(z - COLLISION_VIEW_RADIUS);
-    s32 maxZ = coord_to_cell(z + COLLISION_VIEW_RADIUS);
+    // One cell of slack on each side: surface_load registers a surface into
+    // a neighbouring cell when it sits near a boundary, so the cells the
+    // radius strictly covers are not quite all the cells its geometry is in
+    s32 minX = coord_to_cell(x - COLLISION_VIEW_RADIUS - CELL_SIZE);
+    s32 maxX = coord_to_cell(x + COLLISION_VIEW_RADIUS + CELL_SIZE);
+    s32 minZ = coord_to_cell(z - COLLISION_VIEW_RADIUS - CELL_SIZE);
+    s32 maxZ = coord_to_cell(z + COLLISION_VIEW_RADIUS + CELL_SIZE);
     s32 cellX, cellZ, list;
 
     for (cellZ = minZ; cellZ <= maxZ; cellZ++) {

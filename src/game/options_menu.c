@@ -30,6 +30,13 @@ extern s16 gMenuMode;
 
 #define OPT_MAX_TEXT 32
 
+// Vertical extent of the option list, and the footer that must stay clear
+// of it
+#define OPT_LIST_TOP 172
+#define OPT_LIST_BOTTOM 56
+#define OPT_ROW_MAX 16
+#define OPT_FOOTER_Y 40
+
 enum OptionId {
     OPT_FRAME_CAP,
     OPT_VIEW_MODE,
@@ -175,9 +182,14 @@ static void opt_set(s32 id, s32 value) {
             break;
 #endif
         case OPT_DEBUG_INFO:
+            // Only the debug text. gShowProfiler is deliberately left alone:
+            // the profiler times itself with osGetTime, which this port stubs
+            // to return 0, so every bar reads empty -- and the game treats
+            // the pair as mutually exclusive (lvl_set_current_level skips
+            // its level-select path unless gShowProfiler is clear), which
+            // would put LEVEL SELECT into an inconsistent state.
             configDebugInfo = value;
             gShowDebugText = value;
-            gShowProfiler = value;
             break;
     }
 }
@@ -239,7 +251,7 @@ static void opt_print_value(s16 x, s16 y, s32 id) {
 #ifdef HIGH_FPS_PC
     if (id == OPT_FRAME_CAP) {
         char text[OPT_MAX_TEXT];
-        s32 actual = 30 * gRenderSubframes;
+        s32 actual = GAME_FRAMERATE * gRenderSubframes;
         s32 chosen = 0;
         const char *c;
 
@@ -281,8 +293,15 @@ static void optmenu_draw(void) {
     gDPSetEnvColor(gDisplayListHead++, 255, 255, 255, 255);
     opt_print(124, 192, "OPTIONS");
 
+    // Spacing is derived rather than fixed so that adding an option cannot
+    // silently push the last row on top of the footer
+    s16 step = OPT_COUNT > 1 ? (s16) (OPT_LIST_TOP - OPT_LIST_BOTTOM) / (OPT_COUNT - 1) : OPT_ROW_MAX;
+    if (step > OPT_ROW_MAX) {
+        step = OPT_ROW_MAX;
+    }
+
     for (i = 0; i < OPT_COUNT; i++) {
-        s16 y = 172 - i * 16;
+        s16 y = OPT_LIST_TOP - i * step;
 
         if (i == sMenuSel) {
             gDPSetEnvColor(gDisplayListHead++, 255, 255, 80, 255);
@@ -294,7 +313,7 @@ static void optmenu_draw(void) {
     }
 
     gDPSetEnvColor(gDisplayListHead++, 160, 160, 160, 255);
-    opt_print(64, 46, "R BACK   A CHANGE");
+    opt_print(64, OPT_FOOTER_Y, "R BACK   A CHANGE");
 
     gSPDisplayList(gDisplayListHead++, dl_ia_text_end);
 }
