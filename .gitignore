@@ -72,3 +72,9 @@ sm64config.txt
 !/sound/**/*custom*/**/*.aiff
 !/assets/**/*custom*.bin
 !/assets/**/*custom*/**/*.bin
+
+# Built by tools/porttest/Makefile
+/tools/porttest/fs_atomic_test
+/tools/porttest/framerate_test
+/tools/porttest/gfx_bench
+/tools/porttest/porttest_save.bin*

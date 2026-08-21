@@ -419,6 +419,11 @@ static void wait_for_foreground(void) {
 #ifdef TARGET_IOS
     audio_sdl_pause(false);
 #endif
+#ifdef HIGH_FPS_PC
+    // Frame timings measured either side of a suspension say nothing about
+    // how well the device is keeping up
+    framerate_reset();
+#endif
 }
 
 static void gfx_sdl_handle_events(void) {

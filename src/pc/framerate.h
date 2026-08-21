@@ -40,4 +40,21 @@ extern s32 gSubframesLocked;
 // Interpolation fraction of variant v for the current sub-frame count
 #define INTERP_FACTOR(v) (((f32)(v) + 1.0f) / (f32) gRenderSubframes)
 
+// Milliseconds from a clock that only moves forward, for measuring intervals
+long long framerate_monotonic_ms(void);
+
+// Records the start of a logic frame so the pacing policy can see whether
+// the device is keeping up, and picks the sub-frame count for the frame
+// about to be produced. See src/pc/framerate.c.
+void framerate_note_logic_frame(long long frame_start_ms);
+s32 framerate_choose_subframes(void);
+
+// Throws away accumulated pacing history (used when resuming from the
+// background, where the gap says nothing about rendering performance)
+void framerate_reset(void);
+
+// The current ceiling the backoff has settled on; exposed for tests and
+// diagnostics rather than for the game to act on
+s32 framerate_adaptive_max(void);
+
 #endif
