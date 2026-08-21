@@ -2,6 +2,7 @@
 #include <string.h>
 #include "lib/src/libultra_internal.h"
 #include "macros.h"
+#include "pc/fs.h"
 
 #ifdef TARGET_WEB
 #include <emscripten.h>
@@ -146,7 +147,7 @@ s32 osEepromLongRead(UNUSED OSMesgQueue *mq, u8 address, u8 *buffer, int nbytes)
         ret = 0;
     }
 #else
-    FILE *fp = fopen("sm64_save_file.bin", "rb");
+    FILE *fp = fopen(fs_get_write_path("sm64_save_file.bin"), "rb");
     if (fp == NULL) {
         return -1;
     }
@@ -176,7 +177,7 @@ s32 osEepromLongWrite(UNUSED OSMesgQueue *mq, u8 address, u8 *buffer, int nbytes
     }, content);
     s32 ret = 0;
 #else
-    FILE* fp = fopen("sm64_save_file.bin", "wb");
+    FILE* fp = fopen(fs_get_write_path("sm64_save_file.bin"), "wb");
     if (fp == NULL) {
         return -1;
     }
@@ -188,15 +189,15 @@ s32 osEepromLongWrite(UNUSED OSMesgQueue *mq, u8 address, u8 *buffer, int nbytes
 
 s32 gNumVblanks;
 
-s32 osMotorInit(UNUSED OSMesgQueue *mq, UNUSED void *pfs, UNUSED int channel) {
+s32 osMotorInit(UNUSED OSMesgQueue *mq, UNUSED OSPfs *pfs, UNUSED int channel) {
     return 0;
 }
 
-s32 osMotorStart(UNUSED void *pfs) {
+s32 osMotorStart(UNUSED OSPfs *pfs) {
     return 0;
 }
 
-s32 osMotorStop(UNUSED void *pfs) {
+s32 osMotorStop(UNUSED OSPfs *pfs) {
     return 0;
 }
 

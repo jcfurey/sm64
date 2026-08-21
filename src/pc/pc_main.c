@@ -5,6 +5,11 @@
 #include <emscripten/html5.h>
 #endif
 
+#ifdef TARGET_IOS
+// SDL provides the UIKit application entry point and redefines main below
+#include <SDL2/SDL_main.h>
+#endif
+
 #include "sm64.h"
 
 #include "game/memory.h"
@@ -31,6 +36,7 @@
 #include "configfile.h"
 
 #include "compat.h"
+#include "fs.h"
 
 #define CONFIG_FILE "sm64config.txt"
 
@@ -133,7 +139,7 @@ static void on_anim_frame(double time) {
 #endif
 
 static void save_config(void) {
-    configfile_save(CONFIG_FILE);
+    configfile_save(fs_get_write_path(CONFIG_FILE));
 }
 
 static void on_fullscreen_changed(bool is_now_fullscreen) {
@@ -150,7 +156,7 @@ void main_func(void) {
 #endif
     gEffectsMemoryPool = mem_pool_init(0x4000, MEMORY_POOL_LEFT);
 
-    configfile_load(CONFIG_FILE);
+    configfile_load(fs_get_write_path(CONFIG_FILE));
     atexit(save_config);
 
 #ifdef TARGET_WEB
@@ -196,7 +202,7 @@ void main_func(void) {
         audio_api = &audio_alsa;
     }
 #endif
-#ifdef TARGET_WEB
+#if defined(TARGET_WEB) || defined(TARGET_IOS)
     if (audio_api == NULL && audio_sdl.init()) {
         audio_api = &audio_sdl;
     }

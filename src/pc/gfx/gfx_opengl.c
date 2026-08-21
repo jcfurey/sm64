@@ -168,14 +168,19 @@ static struct ShaderProgram *gfx_opengl_create_and_load_new_shader(uint32_t shad
     struct CCFeatures cc_features;
     gfx_cc_get_features(shader_id, &cc_features);
 
-    char vs_buf[1024];
-    char fs_buf[1024];
+    char vs_buf[2048];
+    char fs_buf[2048];
     size_t vs_len = 0;
     size_t fs_len = 0;
     size_t num_floats = 4;
 
     // Vertex shader
+#ifdef USE_GLES
+    // OpenGL ES 2.0 accepts GLSL ES 1.00 only
+    append_line(vs_buf, &vs_len, "#version 100");
+#else
     append_line(vs_buf, &vs_len, "#version 110");
+#endif
     append_line(vs_buf, &vs_len, "attribute vec4 aVtxPos;");
     if (cc_features.used_textures[0] || cc_features.used_textures[1]) {
         append_line(vs_buf, &vs_len, "attribute vec2 aTexCoord;");
@@ -206,8 +211,13 @@ static struct ShaderProgram *gfx_opengl_create_and_load_new_shader(uint32_t shad
     append_line(vs_buf, &vs_len, "}");
 
     // Fragment shader
+#ifdef USE_GLES
+    append_line(fs_buf, &fs_len, "#version 100");
+    // GLSL ES 1.00 fragment shaders have no default float precision
+    append_line(fs_buf, &fs_len, "precision mediump float;");
+#else
     append_line(fs_buf, &fs_len, "#version 110");
-    //append_line(fs_buf, &fs_len, "precision mediump float;");
+#endif
     if (cc_features.used_textures[0] || cc_features.used_textures[1]) {
         append_line(fs_buf, &fs_len, "varying vec2 vTexCoord;");
     }

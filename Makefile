@@ -19,7 +19,15 @@ DEFINES :=
 TARGET_N64 ?= 0
 # Build for Emscripten/WebGL
 TARGET_WEB ?= 0
+# Build for iOS (requires macOS with Xcode; see ios/README.md)
+TARGET_IOS ?= 0
 # Compiler to use (ido or gcc)
+
+ifeq ($(TARGET_IOS),1)
+  ifeq ($(TARGET_N64),1)
+    $(error Cannot build for N64 and iOS at the same time)
+  endif
+endif
 
 
 # COMPILER - selects the C compiler to use
@@ -37,7 +45,9 @@ ifeq ($(TARGET_N64),0)
   GRUCODE := f3dex2e
   TARGET_WINDOWS := 0
   ifeq ($(TARGET_WEB),0)
-    ifeq ($(OS),Windows_NT)
+    ifeq ($(TARGET_IOS),1)
+      # cross-compiling from macOS; neither Windows nor Linux
+    else ifeq ($(OS),Windows_NT)
       TARGET_WINDOWS := 1
     else
       # TODO: Detect Mac OS X, BSD, etc. For now, assume Linux
@@ -183,6 +193,10 @@ ifeq ($(TARGET_N64),0)
   ifeq ($(TARGET_WEB),1)
     OPT_FLAGS += -g4 --source-map-base http://localhost:8080/
   endif
+  ifeq ($(TARGET_IOS),1)
+    # Full optimization for modern arm64 devices
+    OPT_FLAGS := -O3 -flto
+  endif
 endif
 
 
@@ -289,6 +303,8 @@ ifeq ($(TARGET_N64),1)
   BUILD_DIR := $(BUILD_DIR_BASE)/$(VERSION)
 else ifeq ($(TARGET_WEB),1)
   BUILD_DIR := $(BUILD_DIR_BASE)/$(VERSION)_web
+else ifeq ($(TARGET_IOS),1)
+  BUILD_DIR := $(BUILD_DIR_BASE)/$(VERSION)_ios
 else
   BUILD_DIR := $(BUILD_DIR_BASE)/$(VERSION)_pc
 endif
@@ -531,6 +547,23 @@ ifeq ($(CXX_FILES),"")
 else
   LD := $(CXX)
 endif
+
+ifeq ($(TARGET_IOS),1)
+  # Cross-compile to iOS with the Xcode toolchain (macOS host required)
+  IOS_SDK ?= iphoneos
+  IOS_ARCH ?= arm64
+  IOS_MIN_VERSION ?= 14.0
+  IOS_SYSROOT ?= $(shell xcrun --sdk $(IOS_SDK) --show-sdk-path)
+  # A static SDL2 built for iOS: headers in $(IOS_SDL2_PATH)/include/SDL2,
+  # libSDL2.a in $(IOS_SDL2_PATH)/lib (see ios/README.md)
+  IOS_SDL2_PATH ?= ios/SDL2
+  IOS_TARGET_FLAGS := -isysroot $(IOS_SYSROOT) -arch $(IOS_ARCH) -miphoneos-version-min=$(IOS_MIN_VERSION)
+
+  CC := $(shell xcrun --sdk $(IOS_SDK) --find clang)
+  CXX := $(shell xcrun --sdk $(IOS_SDK) --find clang++)
+  LD := $(CC)
+endif
+
 OBJDUMP := objdump
 OBJCOPY := objcopy
 PYTHON := python3
@@ -547,6 +580,19 @@ endif
 ifeq ($(TARGET_WEB),1)
   PLATFORM_CFLAGS  := -DTARGET_WEB
   PLATFORM_LDFLAGS := -lm -no-pie -s TOTAL_MEMORY=20MB -g4 --source-map-base http://localhost:8080/ -s "EXTRA_EXPORTED_RUNTIME_METHODS=['callMain']"
+endif
+ifeq ($(TARGET_IOS),1)
+  ifeq ($(filter clean distclean,$(MAKECMDGOALS)),)
+    ifeq ($(wildcard $(IOS_SDL2_PATH)/include/SDL2/SDL.h),)
+      $(error SDL2 for iOS not found at $(IOS_SDL2_PATH) - build it first, see ios/README.md)
+    endif
+  endif
+  PLATFORM_CFLAGS  := -DTARGET_IOS -DUSE_GLES $(IOS_TARGET_FLAGS) -I$(IOS_SDL2_PATH)/include
+  PLATFORM_LDFLAGS := -lm $(OPT_FLAGS) $(IOS_TARGET_FLAGS) -L$(IOS_SDL2_PATH)/lib -lSDL2 \
+    -framework UIKit -framework Foundation -framework CoreGraphics -framework QuartzCore \
+    -framework AudioToolbox -framework CoreAudio -framework AVFoundation \
+    -framework GameController -framework CoreMotion -framework CoreHaptics \
+    -framework CoreBluetooth -framework CoreVideo -framework Metal -framework OpenGLES
 endif
 
 PLATFORM_CFLAGS += -DNO_SEGMENTED_MEMORY -DUSE_SYSTEM_MALLOC
@@ -567,6 +613,7 @@ ifeq ($(ENABLE_OPENGL),1)
     GFX_CFLAGS  += -s USE_SDL=2
     GFX_LDFLAGS += -lGL -lSDL2
   endif
+  # On iOS, SDL2 and OpenGL ES come from PLATFORM_CFLAGS/PLATFORM_LDFLAGS
 endif
 ifeq ($(ENABLE_DX11),1)
   GFX_CFLAGS := -DENABLE_DX11
@@ -579,8 +626,16 @@ endif
 
 GFX_CFLAGS += -DWIDESCREEN
 
+# -march=native does not apply when cross-compiling; iOS builds get their
+# architecture from IOS_TARGET_FLAGS instead
+ifeq ($(TARGET_IOS),1)
+  MARCH_CFLAGS :=
+else
+  MARCH_CFLAGS := -march=native
+endif
+
 CC_CHECK := $(CC) -fsyntax-only -fsigned-char -Wall -Wextra -Wno-format-security -D_LANGUAGE_C $(DEF_INC_CFLAGS) $(PLATFORM_CFLAGS) $(GFX_CFLAGS)
-CFLAGS := $(OPT_FLAGS) -D_LANGUAGE_C $(DEF_INC_CFLAGS) $(PLATFORM_CFLAGS) $(GFX_CFLAGS) -fno-strict-aliasing -fwrapv -march=native
+CFLAGS := $(OPT_FLAGS) -D_LANGUAGE_C $(DEF_INC_CFLAGS) $(PLATFORM_CFLAGS) $(GFX_CFLAGS) -fno-strict-aliasing -fwrapv $(MARCH_CFLAGS)
 
 ASFLAGS := -I include -I $(BUILD_DIR) $(foreach d,$(DEFINES),--defsym $(d))
 
@@ -665,8 +720,44 @@ ifeq ($(COMPARE),1)
 	@$(PRINT) "$(GREEN)Checking if ROM matches.. $(NO_COL)\n"
 	@$(SHA1SUM) --quiet -c $(TARGET).sha1 && $(PRINT) "$(TARGET): $(GREEN)OK$(NO_COL)\n" || ($(PRINT) "$(YELLOW)Building the ROM file has succeeded, but does not match the original ROM.\nThis is expected, and not an error, if you are making modifications.\nTo silence this message, use 'make COMPARE=0.' $(NO_COL)\n" && false)
 endif
+else ifeq ($(TARGET_IOS),1)
+all: ios-app ios-ipa
 else
 all: $(EXE)
+endif
+
+ifeq ($(TARGET_IOS),1)
+
+# App bundle and sideloadable .ipa
+IOS_BUNDLE_ID     ?= com.sm64port.$(VERSION)
+IOS_DISPLAY_NAME  ?= SM64 $(VERSION)
+# "-" is ad-hoc signing; set to an "Apple Development: ..." identity to
+# install directly onto a device
+IOS_SIGN_IDENTITY ?= -
+IOS_APP := $(BUILD_DIR)/SM64-$(VERSION).app
+IOS_IPA := $(BUILD_DIR)/sm64.$(VERSION).ipa
+
+.PHONY: ios-app ios-ipa
+ios-app: $(IOS_APP)
+ios-ipa: $(IOS_IPA)
+
+$(IOS_APP): $(EXE) ios/Info.plist.in
+	@$(PRINT) "$(GREEN)Packaging app bundle: $(BLUE)$@ $(NO_COL)\n"
+	$(V)$(RM) -r $@
+	$(V)mkdir -p $@
+	$(V)sed -e 's|@BUNDLE_ID@|$(IOS_BUNDLE_ID)|g' \
+	    -e 's|@DISPLAY_NAME@|$(IOS_DISPLAY_NAME)|g' \
+	    -e 's|@MIN_VERSION@|$(IOS_MIN_VERSION)|g' ios/Info.plist.in > $@/Info.plist
+	$(V)cp $(EXE) $@/sm64
+	$(V)codesign --force --sign "$(IOS_SIGN_IDENTITY)" $@
+
+$(IOS_IPA): $(IOS_APP)
+	@$(PRINT) "$(GREEN)Packaging ipa: $(BLUE)$@ $(NO_COL)\n"
+	$(V)$(RM) -r $(BUILD_DIR)/Payload $@
+	$(V)mkdir -p $(BUILD_DIR)/Payload
+	$(V)cp -R $(IOS_APP) $(BUILD_DIR)/Payload/
+	$(V)cd $(BUILD_DIR) && zip -qry $(notdir $@) Payload
+
 endif
 
 clean:

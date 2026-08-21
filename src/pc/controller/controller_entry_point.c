@@ -16,6 +16,10 @@
 #include "controller_wup.h"
 #endif
 
+#ifdef TARGET_IOS
+#include "controller_touch.h"
+#endif
+
 static struct ControllerAPI *controller_implementations[] = {
     &controller_recorded_tas,
 #if defined(_WIN32) || defined(_WIN64)
@@ -25,6 +29,9 @@ static struct ControllerAPI *controller_implementations[] = {
 #endif
 #ifdef __linux__
     &controller_wup,
+#endif
+#ifdef TARGET_IOS
+    &controller_touch,
 #endif
     &controller_keyboard,
 };

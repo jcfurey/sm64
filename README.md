@@ -2,10 +2,24 @@
 
 - This repo contains a full decompilation of Super Mario 64 of the following releases: Japan (jp), North America (us), Europe (eu), Shindou (sh) and iQue Player (cn).
 - Naming and documentation of the source code and data structures are in progress.
-- Beyond Nintendo 64, it can also target Linux, Windows and macOS natively (`TARGET_N64=0`, the default), based on the [sm64-port](https://github.com/sm64-port/sm64-port) platform layer.
+- Beyond Nintendo 64, it can also target Linux, Windows and **iOS** natively (`TARGET_N64=0`, the default), based on the [sm64-port](https://github.com/sm64-port/sm64-port) platform layer.
 
 This repo does not include all assets necessary for compiling the game.
 A prior copy of the game is required to extract the assets.
+
+## Building for iOS
+
+The iOS target produces an optimized native arm64 app for the `us` and `jp`
+versions, rendering through OpenGL ES 2.0 with touch controls and Bluetooth
+controller support. It requires a macOS host with Xcode:
+
+```
+./ios/build-sdl2.sh                 # one-time: build static SDL2 for iOS
+gmake TARGET_IOS=1 VERSION=us -j8   # or VERSION=jp
+```
+
+See [ios/README.md](ios/README.md) for full instructions, including how to
+install the resulting app on a device.
 
 ## Building native executables
 

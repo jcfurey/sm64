@@ -22,6 +22,10 @@
 #include "gfx_window_manager_api.h"
 #include "gfx_screen_config.h"
 
+#ifdef TARGET_IOS
+#include "../controller/controller_touch.h"
+#endif
+
 #define GFX_API_NAME "SDL2 - OpenGL"
 
 static SDL_Window *wnd;
@@ -87,6 +91,10 @@ const SDL_Scancode scancode_rmapping_nonextended[][2] = {
 };
 
 static void set_fullscreen(bool on, bool call_callback) {
+#ifdef TARGET_IOS
+    // iOS apps are always fullscreen
+    return;
+#endif
     if (fullscreen_state == on) {
         return;
     }
@@ -164,6 +172,38 @@ static void gfx_sdl_init(const char *game_name, bool start_in_fullscreen) {
     char title[512];
     int len = sprintf(title, "%s (%s)", game_name, GFX_API_NAME);
 
+#ifdef TARGET_IOS
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+    SDL_SetHint(SDL_HINT_IOS_HIDE_HOME_INDICATOR, "2");
+
+    wnd = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+            0, 0, SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_FULLSCREEN
+            | SDL_WINDOW_BORDERLESS | SDL_WINDOW_ALLOW_HIGHDPI);
+    fullscreen_state = true;
+
+    SDL_GL_CreateContext(wnd);
+
+    // Render at the native (retina) resolution
+    int drawable_w, drawable_h;
+    SDL_GL_GetDrawableSize(wnd, &drawable_w, &drawable_h);
+    window_width = drawable_w;
+    window_height = drawable_h;
+    touch_set_screen_size(drawable_w, drawable_h);
+
+    // Displays refresh at a multiple of the game's 30 fps; derive the swap
+    // interval from the refresh rate instead of measuring it
+    SDL_DisplayMode mode;
+    int refresh_rate = 60;
+    if (SDL_GetCurrentDisplayMode(0, &mode) == 0 && mode.refresh_rate > 0) {
+        refresh_rate = mode.refresh_rate;
+    }
+    vsync_enabled = refresh_rate % 30 == 0;
+    if (vsync_enabled) {
+        SDL_GL_SetSwapInterval(refresh_rate / 30);
+    }
+#else
     wnd = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
             window_width, window_height, SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
 
@@ -175,6 +215,7 @@ static void gfx_sdl_init(const char *game_name, bool start_in_fullscreen) {
 
     SDL_GL_SetSwapInterval(1);
     test_vsync();
+#endif
     if (!vsync_enabled)
         puts("Warning: VSync is not enabled or not working. Falling back to timer for synchronization");
 
@@ -256,10 +297,26 @@ static void gfx_sdl_handle_events(void) {
                 gfx_sdl_onkeyup(event.key.keysym.scancode);
                 break;
 #endif
+#ifdef TARGET_IOS
+            case SDL_FINGERDOWN:
+                touch_down(event.tfinger.fingerId, event.tfinger.x, event.tfinger.y);
+                break;
+            case SDL_FINGERMOTION:
+                touch_motion(event.tfinger.fingerId, event.tfinger.x, event.tfinger.y);
+                break;
+            case SDL_FINGERUP:
+                touch_up(event.tfinger.fingerId);
+                break;
+#endif
             case SDL_WINDOWEVENT:
                 if (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+#ifdef TARGET_IOS
+                    SDL_GL_GetDrawableSize(wnd, (int *) &window_width, (int *) &window_height);
+                    touch_set_screen_size(window_width, window_height);
+#else
                     window_width = event.window.data1;
                     window_height = event.window.data2;
+#endif
                 }
                 break;
             case SDL_QUIT:
@@ -284,6 +341,10 @@ static void sync_framerate_with_timer(void) {
 }
 
 static void gfx_sdl_swap_buffers_begin(void) {
+#ifdef TARGET_IOS
+    touch_render_overlay(window_width, window_height);
+#endif
+
     if (!vsync_enabled) {
         sync_framerate_with_timer();
     }
