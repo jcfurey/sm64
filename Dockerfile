@@ -5,6 +5,11 @@ RUN apt-get update && \
         binutils-mips-linux-gnu \
         build-essential \
         git \
+        libaudiofile-dev \
+        libsdl2-dev \
+        libusb-1.0 \
+        libx11-dev \
+        libcapstone-dev \
         pkgconf \
         python3
 
