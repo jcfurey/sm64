@@ -339,6 +339,16 @@ static void gfx_sdl_main_loop(void (*run_one_game_iter)(void)) {
 }
 
 static void gfx_sdl_get_dimensions(uint32_t *width, uint32_t *height) {
+#ifdef ENABLE_METAL
+    // Query live so retro mode's low-resolution drawable is reflected
+    int w = 0, h = 0;
+    SDL_Metal_GetDrawableSize(wnd, &w, &h);
+    if (w > 0 && h > 0) {
+        *width = w;
+        *height = h;
+        return;
+    }
+#endif
     *width = window_width;
     *height = window_height;
 }
@@ -442,6 +452,19 @@ static void gfx_sdl_swap_buffers_begin(void) {
 #else
 #ifdef TARGET_IOS
     touch_render_overlay(window_width, window_height);
+#endif
+
+#ifdef HIGH_FPS_PC
+    {
+        // The frame cap can change the sub-frame count at runtime; keep the
+        // swap interval matched so vsync pacing stays correct
+        static int last_applied_subframes;
+        if (vsync_enabled && gMaxSubframes > 0 && last_applied_subframes != gRenderSubframes) {
+            int interval = gMaxSubframes / gRenderSubframes;
+            last_applied_subframes = gRenderSubframes;
+            SDL_GL_SetSwapInterval(interval < 1 ? 1 : interval);
+        }
+    }
 #endif
 
     if (!vsync_enabled) {

@@ -30,6 +30,12 @@ struct ConfigOption {
  *Config options and default values
  */
 bool configFullscreen            = false;
+unsigned int configFrameCap      = 0;
+unsigned int configViewMode      = 0;
+bool configRetroMode             = false;
+bool configShowFPS               = false;
+bool configHUD                   = true;
+bool configDebugInfo             = false;
 // Keyboard mappings (scancode values)
 unsigned int configKeyA          = 0x26;
 unsigned int configKeyB          = 0x33;
@@ -48,6 +54,12 @@ unsigned int configKeyStickRight = 0x20;
 
 static const struct ConfigOption options[] = {
     {.name = "fullscreen",     .type = CONFIG_TYPE_BOOL, .boolValue = &configFullscreen},
+    {.name = "frame_cap",      .type = CONFIG_TYPE_UINT, .uintValue = &configFrameCap},
+    {.name = "view_mode",      .type = CONFIG_TYPE_UINT, .uintValue = &configViewMode},
+    {.name = "retro_mode",     .type = CONFIG_TYPE_BOOL, .boolValue = &configRetroMode},
+    {.name = "show_fps",       .type = CONFIG_TYPE_BOOL, .boolValue = &configShowFPS},
+    {.name = "hud",            .type = CONFIG_TYPE_BOOL, .boolValue = &configHUD},
+    {.name = "debug_info",     .type = CONFIG_TYPE_BOOL, .boolValue = &configDebugInfo},
     {.name = "key_a",          .type = CONFIG_TYPE_UINT, .uintValue = &configKeyA},
     {.name = "key_b",          .type = CONFIG_TYPE_UINT, .uintValue = &configKeyB},
     {.name = "key_start",      .type = CONFIG_TYPE_UINT, .uintValue = &configKeyStart},

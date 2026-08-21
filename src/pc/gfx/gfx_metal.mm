@@ -42,6 +42,8 @@ const float *touch_overlay_build(int width, int height, int *num_verts);
 #ifdef HIGH_FPS_PC
 #include "../framerate.h"
 #endif
+
+#include "../configfile.h"
 }
 
 #define MAX_FRAMES_IN_FLIGHT 3
@@ -119,6 +121,9 @@ static struct {
 
     // Touch overlay
     id<MTLRenderPipelineState> overlay_pipeline;
+
+    // Native drawable size at init, restored when retro mode turns off
+    CGSize native_drawable_size;
 } mtl;
 
 //==============================================================================
@@ -648,6 +653,8 @@ static void gfx_metal_init(void) {
     // blocking is what paces the game loop
     mtl.layer.maximumDrawableCount = 2;
 
+    mtl.native_drawable_size = mtl.layer.drawableSize;
+
     mtl.queue = [mtl.device newCommandQueue];
     mtl.frame_semaphore = dispatch_semaphore_create(MAX_FRAMES_IN_FLIGHT);
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
@@ -670,6 +677,20 @@ static void gfx_metal_on_resize(void) {
 }
 
 static void gfx_metal_start_frame(void) {
+    // Retro mode renders at a 240-line drawable that the layer scales up,
+    // approximating the N64's output resolution
+    if (mtl.native_drawable_size.height > 240.0) {
+        CGSize want = mtl.native_drawable_size;
+        if (configRetroMode) {
+            want.width = round(mtl.native_drawable_size.width * 240.0 / mtl.native_drawable_size.height);
+            want.height = 240.0;
+        }
+        CGSize cur = mtl.layer.drawableSize;
+        if (cur.width != want.width || cur.height != want.height) {
+            mtl.layer.drawableSize = want;
+        }
+    }
+
     dispatch_semaphore_wait(mtl.frame_semaphore, DISPATCH_TIME_FOREVER);
 
     mtl.frame_index = (mtl.frame_index + 1) % MAX_FRAMES_IN_FLIGHT;
@@ -713,6 +734,8 @@ static void gfx_metal_start_frame(void) {
 
     mtl.encoder = [mtl.command_buffer renderCommandEncoderWithDescriptor:pass];
     [mtl.encoder setCullMode:MTLCullModeNone];
+    [mtl.encoder setTriangleFillMode:(configViewMode == 1 ? MTLTriangleFillModeLines
+                                                          : MTLTriangleFillModeFill)];
 
     // A fresh encoder has no state; re-apply what gfx_pc believes is current
     mtl.last_program = NULL;
@@ -760,6 +783,7 @@ static void draw_touch_overlay(void) {
 
     MTLViewport full_viewport = { 0.0, 0.0, (double) mtl.render_width, (double) mtl.render_height, 0.0, 1.0 };
     MTLScissorRect full_scissor = { 0, 0, mtl.render_width, mtl.render_height };
+    [mtl.encoder setTriangleFillMode:MTLTriangleFillModeFill];
     [mtl.encoder setViewport:full_viewport];
     [mtl.encoder setScissorRect:full_scissor];
     [mtl.encoder setDepthStencilState:mtl.depth_states[0][0]];

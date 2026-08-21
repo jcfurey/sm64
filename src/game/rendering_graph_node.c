@@ -14,6 +14,9 @@
 #ifdef HIGH_FPS_PC
 #include "pc/framerate.h"
 #endif
+#ifndef TARGET_N64
+#include "debug_view.h"
+#endif
 
 /**
  * This file contains the code that processes the scene graph for rendering.
@@ -350,6 +353,13 @@ static void geo_append_display_list(void *displayList, s16 layer) {
 }
 #endif
 
+#ifndef TARGET_N64
+// Exposed for the collision view (debug_view.c)
+void geo_append_debug_display_list(void *displayList, s16 layer) {
+    geo_append_display_list(displayList, layer);
+}
+#endif
+
 /**
  * Process the master list node.
  */
@@ -597,6 +607,9 @@ static void geo_process_camera(struct GraphNodeCamera *node) {
         }
 #endif
         geo_process_node_and_siblings(node->fnNode.node.children);
+#ifndef TARGET_N64
+        debug_view_append_collision();
+#endif
         gCurGraphNodeCamera = NULL;
     }
     gMatStackIndex--;

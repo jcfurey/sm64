@@ -87,6 +87,24 @@ Touch controls are drawn as a semi-transparent overlay:
 Bluetooth game controllers (Xbox, PlayStation, MFi) are supported through
 SDL's GameController API and can be used instead of the touch controls.
 
+## In-game options menu
+
+Pause the game and press **R** to open the options menu (stick or D-pad to
+navigate, A or left/right to change a value, R/B/Start to close). Settings
+persist in the app's config file:
+
+- **Frame Rate** — Auto (match the display: 120 on ProMotion, 60 otherwise),
+  or a fixed 30/60/90/120 cap. Game logic always runs at its native 30 Hz;
+  higher rates render interpolated frames between logic frames.
+- **View** — Normal, Wireframe (Metal renderer), or Collision, which draws
+  the collision mesh around Mario as translucent triangles: floors green,
+  ceilings red, walls blue.
+- **Retro Mode** — the authentic look: centered 4:3 picture with black
+  pillarbox bars, 240-line rendering scaled up (Metal), and a 30 fps lock.
+- **Show FPS** — rendered-frames-per-second counter.
+- **HUD** — hide the heads-up display for clean screenshots.
+- **Debug Info** — the game's built-in debug text and profiler overlays.
+
 Save files and settings are stored in the app's sandbox and survive app
 updates (but not uninstalling).
 
@@ -104,10 +122,14 @@ updates (but not uninstalling).
 | `IOS_SIGN_IDENTITY` | `-` (ad-hoc) | Codesigning identity |
 | `IOS_SDL2_PATH` | `ios/SDL2` | Where the static SDL2 lives |
 
-The iOS build compiles with `-O3 -flto` (link-time optimization) by default;
-the game is far below what modern iPhone hardware can render, so it runs at a
-locked 30 fps (the game's native logic rate), frame-paced by the Metal
-presentation queue (or vsync under the GLES fallback).
+The iOS build compiles with `-O3 -flto` (link-time optimization) by default.
+Game logic always runs at the native 30 Hz; with `HIGH_FPS=1` (the default)
+each logic frame is rendered up to 4 times with everything interpolated
+between the previous and current game state, reaching a real 120 rendered
+frames per second on ProMotion displays. `HIGH_FPS=0` builds the vanilla
+30 fps port. Wireframe view and the 240p half of retro mode are Metal
+features; the GLES fallback ignores them (collision view and 4:3 work
+everywhere).
 
 `PEDANTIC=1` is scoped to the modern platform code on purpose: the decompiled
 1996 game code relies on GNU C extensions and idioms that predate these

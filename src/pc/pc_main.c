@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <time.h>
 
 #ifdef TARGET_WEB
 #include <emscripten.h>
@@ -86,11 +87,71 @@ void exec_display_list(struct SPTask *spTask) {
 #define SAMPLES_LOW 528
 #endif
 
+// Rendered frames per second, measured over the last second; displayed by
+// the in-game FPS counter
+s32 gCurrentFPS = 0;
+
+static s32 sFPSAccum;
+static long long sFPSWindowStartMs;
+
+static long long wall_clock_ms(void) {
+    struct timespec ts;
+    if (timespec_get(&ts, TIME_UTC) == TIME_UTC) {
+        return (long long) ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+    }
+    return (long long) time(NULL) * 1000;
+}
+
+static void fps_count_frames(s32 frames) {
+    long long now = wall_clock_ms();
+    sFPSAccum += frames;
+    if (sFPSWindowStartMs == 0) {
+        sFPSWindowStartMs = now;
+    } else if (now - sFPSWindowStartMs >= 1000) {
+        gCurrentFPS = (s32)(sFPSAccum * 1000 / (now - sFPSWindowStartMs));
+        sFPSAccum = 0;
+        sFPSWindowStartMs = now;
+    }
+}
+
+void configfile_save_current(void) {
+    configfile_save(fs_get_write_path(CONFIG_FILE));
+}
+
 #ifdef HIGH_FPS_PC
 // Frames rendered per 30 Hz game logic frame; latched from gMaxSubframes
 // at the start of each logic frame so it never changes mid-frame
 s32 gRenderSubframes = 1;
 s32 gMaxSubframes = 1;
+s32 gSubframesLocked = 0;
+
+// Chooses this frame's sub-frame count: the user's frame cap and retro
+// mode lower it, the display capability bounds it, and it must divide the
+// display multiple so vsync pacing stays even
+static s32 choose_subframes(void) {
+    s32 max = gMaxSubframes < 1 ? 1 : (gMaxSubframes > MAX_SUBFRAMES ? MAX_SUBFRAMES : gMaxSubframes);
+    s32 want = max;
+
+    if (gSubframesLocked) {
+        return max;
+    }
+    if (configFrameCap != 0) {
+        want = configFrameCap / 30;
+    }
+    if (configRetroMode) {
+        want = 1;
+    }
+    if (want < 1) {
+        want = 1;
+    }
+    if (want > max) {
+        want = max;
+    }
+    while (want > 1 && max % want != 0) {
+        want--;
+    }
+    return want;
+}
 
 // Invalidates all recorded interpolation patch positions; called before
 // each game logic frame so stale positions can never be rewritten
@@ -133,7 +194,7 @@ static void patch_interpolations(s32 v) {
 void produce_one_frame(void) {
     gfx_start_frame();
 #ifdef HIGH_FPS_PC
-    gRenderSubframes = gMaxSubframes < 1 ? 1 : (gMaxSubframes > MAX_SUBFRAMES ? MAX_SUBFRAMES : gMaxSubframes);
+    gRenderSubframes = choose_subframes();
     patch_interpolations_reset();
 #endif
     game_loop_one_iteration();
@@ -161,6 +222,9 @@ void produce_one_frame(void) {
         exec_display_list(gGfxSPTask);
         gfx_end_frame();
     }
+    fps_count_frames(gRenderSubframes);
+#else
+    fps_count_frames(1);
 #endif
 }
 
@@ -217,6 +281,9 @@ void main_func(void) {
 
     configfile_load(fs_get_write_path(CONFIG_FILE));
     atexit(save_config);
+
+    gShowDebugText = configDebugInfo;
+    gShowProfiler = configDebugInfo;
 
 #ifdef TARGET_WEB
     emscripten_set_main_loop(em_main_loop, 0, 0);

@@ -45,6 +45,7 @@
 // always renders two sub-frames per game logic frame
 static void glx_set_subframes(void) {
     gMaxSubframes = 2;
+    gSubframesLocked = 1;
 }
 #endif
 

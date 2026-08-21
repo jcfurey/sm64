@@ -27,6 +27,26 @@
 
 #include "gfx_cc.h"
 #include "gfx_rendering_api.h"
+#include "../configfile.h"
+
+#if FOR_WINDOWS
+// glew provides glPolygonMode
+#define GFX_GL_CAN_WIREFRAME 1
+#elif !defined(TARGET_IOS) && !defined(TARGET_WEB)
+// Desktop GL contexts export glPolygonMode even though the GLES2 headers
+// this file compiles against omit it
+#define GFX_GL_CAN_WIREFRAME 1
+extern void glPolygonMode(GLenum face, GLenum mode);
+#ifndef GL_LINE
+#define GL_LINE 0x1B01
+#endif
+#ifndef GL_FILL
+#define GL_FILL 0x1B02
+#endif
+#ifndef GL_FRONT_AND_BACK
+#define GL_FRONT_AND_BACK 0x0408
+#endif
+#endif
 
 struct ShaderProgram {
     uint32_t shader_id;
@@ -499,6 +519,10 @@ static void gfx_opengl_on_resize(void) {
 
 static void gfx_opengl_start_frame(void) {
     frame_count++;
+
+#ifdef GFX_GL_CAN_WIREFRAME
+    glPolygonMode(GL_FRONT_AND_BACK, configViewMode == 1 ? GL_LINE : GL_FILL);
+#endif
 
     glDisable(GL_SCISSOR_TEST);
     glDepthMask(GL_TRUE); // Must be set to clear Z-buffer

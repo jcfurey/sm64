@@ -15,6 +15,7 @@
 #include "gfx_window_manager_api.h"
 #include "gfx_rendering_api.h"
 #include "gfx_screen_config.h"
+#include "../configfile.h"
 
 #define SUPPORT_CHECK(x) assert(x)
 
@@ -148,6 +149,10 @@ static struct RenderingState {
 } rendering_state;
 
 struct GfxDimensions gfx_current_dimensions;
+
+// Left inset in window pixels when retro mode pillarboxes the game into a
+// centered 4:3 box
+static uint32_t gfx_game_offset_x;
 
 static bool dropped_frame;
 
@@ -946,7 +951,7 @@ static void gfx_calc_and_set_viewport(const Vp_t *viewport) {
     x *= RATIO_X;
     y *= RATIO_Y;
     
-    rdp.viewport.x = x;
+    rdp.viewport.x = x + gfx_game_offset_x;
     rdp.viewport.y = y;
     rdp.viewport.width = width;
     rdp.viewport.height = height;
@@ -1016,7 +1021,7 @@ static void gfx_dp_set_scissor(uint32_t mode, uint32_t ulx, uint32_t uly, uint32
     float width = (lrx - ulx) / 4.0f * RATIO_X;
     float height = (lry - uly) / 4.0f * RATIO_Y;
     
-    rdp.scissor.x = x;
+    rdp.scissor.x = x + gfx_game_offset_x;
     rdp.scissor.y = y;
     rdp.scissor.width = width;
     rdp.scissor.height = height;
@@ -1658,6 +1663,13 @@ void gfx_start_frame(void) {
     if (gfx_current_dimensions.height == 0) {
         // Avoid division by zero
         gfx_current_dimensions.height = 1;
+    }
+    gfx_game_offset_x = 0;
+    if (configRetroMode && gfx_current_dimensions.width * 3 > gfx_current_dimensions.height * 4) {
+        // Pillarbox the game into a centered 4:3 box
+        uint32_t logical_width = gfx_current_dimensions.height * 4 / 3;
+        gfx_game_offset_x = (gfx_current_dimensions.width - logical_width) / 2;
+        gfx_current_dimensions.width = logical_width;
     }
     gfx_current_dimensions.aspect_ratio = (float)gfx_current_dimensions.width / (float)gfx_current_dimensions.height;
 }

@@ -11,6 +11,9 @@
 #include "game_init.h"
 #include "gfx_dimensions.h"
 #include "ingame_menu.h"
+#ifndef TARGET_N64
+#include "options_menu.h"
+#endif
 #include "level_update.h"
 #include "levels/castle_grounds/header.h"
 #include "memory.h"
@@ -3524,6 +3527,12 @@ s16 render_menus_and_dialogs(void) {
     s16 index = MENU_OPT_NONE;
 
     create_dl_ortho_matrix();
+
+#ifndef TARGET_N64
+    if (optmenu_update_and_render()) {
+        return index;
+    }
+#endif
 
     if (gMenuMode != MENU_MODE_NONE) {
         switch (gMenuMode) {

@@ -7,6 +7,9 @@
 #include "level_update.h"
 #include "camera.h"
 #include "print.h"
+#ifndef TARGET_N64
+#include "pc/configfile.h"
+#endif
 #include "ingame_menu.h"
 #include "hud.h"
 #include "segment2.h"
@@ -446,6 +449,11 @@ void render_hud_camera_status(void) {
  * excluding the cannon reticle which detects a camera preset for it.
  */
 void render_hud(void) {
+#ifndef TARGET_N64
+    if (!configHUD) {
+        return;
+    }
+#endif
     s16 hudDisplayFlags = gHudDisplay.flags;
 
     if (hudDisplayFlags == HUD_DISPLAY_NONE) {

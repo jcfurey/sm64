@@ -28,6 +28,10 @@ extern s32 gRenderSubframes;
 // refresh rate supports (set once by the window backend at init)
 extern s32 gMaxSubframes;
 
+// Set by window backends that present at a fixed rate and cannot honor a
+// lower sub-frame count (glx, dxgi)
+extern s32 gSubframesLocked;
+
 // Maximum supported sub-frames per logic frame (120 Hz displays)
 #define MAX_SUBFRAMES 4
 // Maximum interpolated (non-final) variants

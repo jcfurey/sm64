@@ -18,6 +18,10 @@
 #include "area.h"
 #include "rendering_graph_node.h"
 #include "level_update.h"
+#ifndef TARGET_N64
+#include "pc/configfile.h"
+#include "options_menu.h"
+#endif
 #include "engine/geo_layout.h"
 #include "save_file.h"
 #include "level_table.h"
@@ -381,6 +385,11 @@ void render_game(void) {
         render_hud();
 
         gDPSetScissor(gDisplayListHead++, G_SC_NON_INTERLACE, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+#ifndef TARGET_N64
+        if (configShowFPS) {
+            print_text_fmt_int(22, 20, "FPS %d", gCurrentFPS);
+        }
+#endif
         render_text_labels();
         do_cutscene_handler();
         print_displaying_credits_entry();

@@ -60,6 +60,7 @@ extern "C" {
 }
 static void dxgi_set_subframes(void) {
     gMaxSubframes = 2;
+    gSubframesLocked = 1;
 }
 #endif
 
