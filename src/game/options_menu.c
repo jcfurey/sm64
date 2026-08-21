@@ -19,6 +19,7 @@
 #include "options_menu.h"
 
 #include "pc/configfile.h"
+#include "pc/controller/controller_touch.h"
 #ifdef HIGH_FPS_PC
 #include "pc/framerate.h"
 #endif
@@ -35,6 +36,12 @@ enum OptionId {
     OPT_RETRO_MODE,
     OPT_SHOW_FPS,
     OPT_HUD,
+#ifdef TARGET_IOS
+    OPT_TOUCH_SIZE,
+    OPT_TOUCH_ALPHA,
+    OPT_TOUCH_EDIT,
+#endif
+    OPT_LEVEL_SELECT,
     OPT_DEBUG_INFO,
     OPT_COUNT
 };
@@ -49,6 +56,35 @@ static const char *sChoicesFrameCap[] = { "AUTO", "30", "60", "90", "120" };
 static const char *sChoicesViewMode[] = { "NORMAL", "WIREFRAME", "COLLISION" };
 static const char *sChoicesOffOn[]    = { "OFF", "ON" };
 static const char *sChoicesOnOff[]    = { "ON", "OFF" };
+#ifdef TARGET_IOS
+static const char *sChoicesTouchSize[]  = { "SMALL", "NORMAL", "LARGE", "HUGE" };
+static const char *sChoicesTouchAlpha[] = { "HIDDEN", "FAINT", "NORMAL", "SOLID" };
+static const char *sChoicesEdit[]       = { "PRESS A", "DRAG - TAP TO FINISH" };
+
+// Multipliers behind the size and opacity choices
+static const f32 sTouchSizes[]  = { 0.80f, 1.00f, 1.20f, 1.45f };
+static const f32 sTouchAlphas[] = { 0.00f, 0.55f, 1.00f, 1.60f };
+
+// Picks the choice index whose multiplier is closest to the stored value,
+// so a hand-edited config still shows something sensible
+static s32 nearest_choice(const f32 *values, s32 count, f32 value) {
+    s32 best = 0;
+    f32 bestDist = 1.0e9f;
+    s32 i;
+
+    for (i = 0; i < count; i++) {
+        f32 d = values[i] - value;
+        if (d < 0.0f) {
+            d = -d;
+        }
+        if (d < bestDist) {
+            bestDist = d;
+            best = i;
+        }
+    }
+    return best;
+}
+#endif
 
 static const struct OptionDef sOptions[OPT_COUNT] = {
     [OPT_FRAME_CAP]  = { "FRAME RATE",  sChoicesFrameCap, 5 },
@@ -56,6 +92,12 @@ static const struct OptionDef sOptions[OPT_COUNT] = {
     [OPT_RETRO_MODE] = { "RETRO MODE",  sChoicesOffOn,    2 },
     [OPT_SHOW_FPS]   = { "SHOW FPS",    sChoicesOffOn,    2 },
     [OPT_HUD]        = { "HUD",         sChoicesOnOff,    2 },
+#ifdef TARGET_IOS
+    [OPT_TOUCH_SIZE]  = { "TOUCH SIZE",  sChoicesTouchSize,  4 },
+    [OPT_TOUCH_ALPHA] = { "TOUCH ALPHA", sChoicesTouchAlpha, 4 },
+    [OPT_TOUCH_EDIT]  = { "MOVE BUTTONS", sChoicesEdit,      2 },
+#endif
+    [OPT_LEVEL_SELECT] = { "LEVEL SELECT", sChoicesOffOn,  2 },
     [OPT_DEBUG_INFO] = { "DEBUG INFO",  sChoicesOffOn,    2 },
 };
 
@@ -81,7 +123,16 @@ static s32 opt_get(s32 id) {
         case OPT_RETRO_MODE: return configRetroMode;
         case OPT_SHOW_FPS:   return configShowFPS;
         case OPT_HUD:        return !configHUD;
+        case OPT_LEVEL_SELECT: return configLevelSelect;
         case OPT_DEBUG_INFO: return configDebugInfo;
+#ifdef TARGET_IOS
+        case OPT_TOUCH_SIZE:
+            return nearest_choice(sTouchSizes, ARRAY_COUNT(sTouchSizes), configTouchScale);
+        case OPT_TOUCH_ALPHA:
+            return nearest_choice(sTouchAlphas, ARRAY_COUNT(sTouchAlphas), configTouchOpacity);
+        case OPT_TOUCH_EDIT:
+            return touch_layout_edit_active();
+#endif
     }
     return 0;
 }
@@ -105,6 +156,24 @@ static void opt_set(s32 id, s32 value) {
         case OPT_HUD:
             configHUD = !value;
             break;
+        case OPT_LEVEL_SELECT:
+            // The game's own debug level select, which it has always had
+            // but never exposed. It takes effect on the next exit to the
+            // castle, so the pause menu's "exit course" leads to it.
+            configLevelSelect = value;
+            gDebugLevelSelect = value;
+            break;
+#ifdef TARGET_IOS
+        case OPT_TOUCH_SIZE:
+            configTouchScale = sTouchSizes[value];
+            break;
+        case OPT_TOUCH_ALPHA:
+            configTouchOpacity = sTouchAlphas[value];
+            break;
+        case OPT_TOUCH_EDIT:
+            touch_layout_edit_set(value != 0);
+            break;
+#endif
         case OPT_DEBUG_INFO:
             configDebugInfo = value;
             gShowDebugText = value;
@@ -192,6 +261,19 @@ static void opt_print_value(s16 x, s16 y, s32 id) {
 static void optmenu_draw(void) {
     s32 i;
 
+#ifdef TARGET_IOS
+    if (touch_layout_edit_active()) {
+        // Leave the screen unshaded so the controls being rearranged are
+        // actually visible; all that is needed here is the instruction
+        gSPDisplayList(gDisplayListHead++, dl_ia_text_begin);
+        gDPSetEnvColor(gDisplayListHead++, 255, 255, 120, 255);
+        opt_print(40, 200, "DRAG THE BUTTONS");
+        opt_print(40, 182, "TAP AN EMPTY SPOT WHEN DONE");
+        gSPDisplayList(gDisplayListHead++, dl_ia_text_end);
+        return;
+    }
+#endif
+
     shade_screen();
 
     gSPDisplayList(gDisplayListHead++, dl_ia_text_begin);
@@ -200,7 +282,7 @@ static void optmenu_draw(void) {
     opt_print(124, 192, "OPTIONS");
 
     for (i = 0; i < OPT_COUNT; i++) {
-        s16 y = 168 - i * 18;
+        s16 y = 172 - i * 16;
 
         if (i == sMenuSel) {
             gDPSetEnvColor(gDisplayListHead++, 255, 255, 80, 255);
@@ -223,6 +305,11 @@ static void optmenu_draw(void) {
 
 static void optmenu_close(void) {
     sMenuOpen = FALSE;
+#ifdef TARGET_IOS
+    // Leaving the menu while still rearranging would strand the player in a
+    // mode with no way out; turning it off here also saves the layout
+    touch_layout_edit_set(FALSE);
+#endif
     configfile_save_current();
 }
 

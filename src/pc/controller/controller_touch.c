@@ -25,6 +25,8 @@
 
 #include "controller_api.h"
 #include "controller_touch.h"
+#include "../configfile.h"
+#include "../fs.h"
 
 #define MAX_FINGERS 10
 
@@ -55,8 +57,10 @@ struct TouchButton {
     float color[4];
 };
 
-// Colors follow the N64 pad: A blue, B green, C yellow, Start red
-static const struct TouchButton touch_buttons[TOUCH_BUTTON_COUNT] = {
+// Colors follow the N64 pad: A blue, B green, C yellow, Start red.
+// These are the authored positions; the live layout below starts as a copy
+// and can be moved by the player, so resetting is just a memcpy.
+static const struct TouchButton touch_button_defaults[TOUCH_BUTTON_COUNT] = {
     [TOUCH_A]       = { 0.905f, 0.720f, 0.085f, A_BUTTON,     { 0.25f, 0.35f, 0.95f, 1.0f } },
     [TOUCH_B]       = { 0.780f, 0.860f, 0.065f, B_BUTTON,     { 0.20f, 0.80f, 0.30f, 1.0f } },
     [TOUCH_Z]       = { 0.660f, 0.700f, 0.055f, Z_TRIG,       { 0.60f, 0.60f, 0.65f, 1.0f } },
@@ -66,6 +70,17 @@ static const struct TouchButton touch_buttons[TOUCH_BUTTON_COUNT] = {
     [TOUCH_C_DOWN]  = { 0.860f, 0.510f, 0.042f, D_CBUTTONS,   { 0.95f, 0.80f, 0.15f, 1.0f } },
     [TOUCH_C_LEFT]  = { 0.772f, 0.420f, 0.042f, L_CBUTTONS,   { 0.95f, 0.80f, 0.15f, 1.0f } },
     [TOUCH_C_RIGHT] = { 0.948f, 0.420f, 0.042f, R_CBUTTONS,   { 0.95f, 0.80f, 0.15f, 1.0f } },
+};
+
+static struct TouchButton touch_buttons[TOUCH_BUTTON_COUNT];
+
+// Short stable names, used as keys in the saved layout file
+static const char *const touch_button_names[TOUCH_BUTTON_COUNT] = {
+    [TOUCH_A] = "a",           [TOUCH_B] = "b",
+    [TOUCH_Z] = "z",           [TOUCH_R] = "r",
+    [TOUCH_START] = "start",   [TOUCH_C_UP] = "cup",
+    [TOUCH_C_DOWN] = "cdown",  [TOUCH_C_LEFT] = "cleft",
+    [TOUCH_C_RIGHT] = "cright",
 };
 
 enum FingerRole {
@@ -113,14 +128,128 @@ static struct Finger *alloc_finger(long long id) {
     return NULL;
 }
 
+//==============================================================================
+// Layout: persistence and editing
+//==============================================================================
+
+#define TOUCH_LAYOUT_FILE "sm64_touch_layout.txt"
+
+// Keep a dragged button wholly on screen
+#define LAYOUT_MIN_X 0.03f
+#define LAYOUT_MAX_X 0.97f
+#define LAYOUT_MIN_Y 0.05f
+#define LAYOUT_MAX_Y 0.95f
+
+static bool layout_edit_mode;
+static int layout_drag_button = -1;
+static bool layout_drag_moved;
+static bool layout_dirty;
+
+static float clampf(float v, float lo, float hi) {
+    return v < lo ? lo : (v > hi ? hi : v);
+}
+
+void touch_layout_reset(void) {
+    memcpy(touch_buttons, touch_button_defaults, sizeof(touch_buttons));
+    layout_dirty = true;
+}
+
+// Reads back a saved layout. Anything unrecognized or out of range is
+// ignored rather than rejected wholesale, so a partly stale file (say from
+// a build with different buttons) still restores what it can.
+static void touch_layout_load(void) {
+    char line[128];
+    FILE *f;
+
+    touch_layout_reset();
+    layout_dirty = false;
+
+    f = fopen(fs_get_write_path(TOUCH_LAYOUT_FILE), "r");
+    if (f == NULL) {
+        return;
+    }
+    while (fgets(line, sizeof(line), f) != NULL) {
+        char name[32];
+        float cx, cy, r;
+        int i;
+
+        if (sscanf(line, "%31s %f %f %f", name, &cx, &cy, &r) != 4) {
+            continue;
+        }
+        for (i = 0; i < TOUCH_BUTTON_COUNT; i++) {
+            if (strcmp(name, touch_button_names[i]) == 0) {
+                if (cx >= 0.0f && cx <= 1.0f && cy >= 0.0f && cy <= 1.0f
+                    && r > 0.005f && r < 0.5f) {
+                    touch_buttons[i].cx = cx;
+                    touch_buttons[i].cy = cy;
+                    touch_buttons[i].r = r;
+                }
+                break;
+            }
+        }
+    }
+    fclose(f);
+}
+
+void touch_layout_save(void) {
+    const char *path = fs_get_write_path(TOUCH_LAYOUT_FILE);
+    FILE *f;
+    int i;
+
+    if (!layout_dirty) {
+        return;
+    }
+    f = fs_open_atomic(path);
+    if (f == NULL) {
+        return;
+    }
+    fprintf(f, "# On-screen control layout: name center-x center-y radius\n");
+    fprintf(f, "# Delete this file to go back to the default layout.\n");
+    for (i = 0; i < TOUCH_BUTTON_COUNT; i++) {
+        fprintf(f, "%s %.4f %.4f %.4f\n", touch_button_names[i],
+                touch_buttons[i].cx, touch_buttons[i].cy, touch_buttons[i].r);
+    }
+    if (fs_close_atomic(f, path)) {
+        layout_dirty = false;
+    }
+}
+
+void touch_layout_edit_set(bool on) {
+    if (layout_edit_mode == on) {
+        return;
+    }
+    layout_edit_mode = on;
+    layout_drag_button = -1;
+    if (!on) {
+        touch_layout_save();
+    }
+}
+
+bool touch_layout_edit_active(void) {
+    return layout_edit_mode;
+}
+
 // Distance test in pixel space so circles stay circular regardless of the
 // screen's aspect ratio
+// The drawn radius, with the player's size setting applied. The stored
+// value stays as authored so changing the setting never compounds.
+static float button_radius(const struct TouchButton *b) {
+    float scale = configTouchScale;
+
+    if (!(scale > 0.1f)) {
+        scale = 1.0f; // also catches a NaN from a hand-edited config
+    }
+    if (scale > 3.0f) {
+        scale = 3.0f;
+    }
+    return b->r * scale * (float) screen_height;
+}
+
 static bool hit_button(const struct TouchButton *b, float x, float y) {
     float dx = (x - b->cx) * (float) screen_width;
     float dy = (y - b->cy) * (float) screen_height;
-    float r = b->r * (float) screen_height;
     // Generous hit area: 1.4x the drawn radius
-    r *= 1.4f;
+    float r = button_radius(b) * 1.4f;
     return dx * dx + dy * dy <= r * r;
 }
 
@@ -135,6 +264,22 @@ void touch_down(long long finger_id, float x, float y) {
     f->x = x;
     f->y = y;
     f->role = ROLE_NONE;
+
+    if (layout_edit_mode) {
+        // Grab a button to reposition it. A touch that lands on nothing is
+        // how the player signals they are done, once it lifts without
+        // having dragged anything.
+        for (int i = 0; i < TOUCH_BUTTON_COUNT; i++) {
+            if (hit_button(&touch_buttons[i], x, y)) {
+                layout_drag_button = i;
+                layout_drag_moved = false;
+                return;
+            }
+        }
+        layout_drag_button = -1;
+        layout_drag_moved = false;
+        return;
+    }
 
     for (int i = 0; i < TOUCH_BUTTON_COUNT; i++) {
         if (hit_button(&touch_buttons[i], x, y)) {
@@ -158,10 +303,27 @@ void touch_motion(long long finger_id, float x, float y) {
     }
     f->x = x;
     f->y = y;
+
+    if (layout_edit_mode && layout_drag_button >= 0) {
+        struct TouchButton *b = &touch_buttons[layout_drag_button];
+        b->cx = clampf(x, LAYOUT_MIN_X, LAYOUT_MAX_X);
+        b->cy = clampf(y, LAYOUT_MIN_Y, LAYOUT_MAX_Y);
+        layout_drag_moved = true;
+        layout_dirty = true;
+    }
 }
 
 void touch_up(long long finger_id) {
     struct Finger *f = find_finger(finger_id);
+
+    if (layout_edit_mode) {
+        if (layout_drag_button < 0 && !layout_drag_moved) {
+            // Lifted from empty space without having moved anything
+            touch_layout_edit_set(false);
+        }
+        layout_drag_button = -1;
+    }
+
     if (f != NULL) {
         f->active = false;
         f->role = ROLE_NONE;
@@ -170,6 +332,7 @@ void touch_up(long long finger_id) {
 
 static void touch_init(void) {
     memset(fingers, 0, sizeof(fingers));
+    touch_layout_load();
 }
 
 static void touch_read(OSContPad *pad) {
@@ -316,13 +479,31 @@ static void overlay_build(void) {
     float w = (float) screen_width;
     float h = (float) screen_height;
     static const float white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    float opacity = configTouchOpacity;
+    bool editing = layout_edit_mode;
 
     overlay_num_verts = 0;
+
+    if (!(opacity > 0.0f)) {
+        // Hidden (or a NaN from a hand-edited config). Input still works;
+        // this is for playing with a hardware controller attached.
+        if (!editing) {
+            return;
+        }
+        opacity = 1.0f;
+    }
+    if (opacity > 2.0f) {
+        opacity = 2.0f;
+    }
+    if (editing) {
+        // Show the whole layout clearly regardless of the opacity setting
+        opacity = 2.0f;
+    }
 
     // Stick: while held, draw base ring at the origin and nub at the finger;
     // otherwise a faint resting hint
     bool stick_held = false;
-    for (int i = 0; i < MAX_FINGERS; i++) {
+    for (int i = 0; i < MAX_FINGERS && !editing; i++) {
         struct Finger *f = &fingers[i];
         if (f->active && f->role == ROLE_STICK) {
             float range = STICK_RANGE * h;
@@ -335,32 +516,41 @@ static void overlay_build(void) {
                 dx *= range / mag;
                 dy *= range / mag;
             }
-            overlay_push_circle(ox, oy, range, white, 0.15f);
-            overlay_push_circle(ox + dx, oy + dy, range * 0.45f, white, 0.35f);
+            overlay_push_circle(ox, oy, range, white, 0.15f * opacity);
+            overlay_push_circle(ox + dx, oy + dy, range * 0.45f, white, 0.35f * opacity);
             stick_held = true;
             break;
         }
     }
     if (!stick_held) {
-        overlay_push_circle(0.18f * w, 0.68f * h, STICK_RANGE * h, white, 0.08f);
-        overlay_push_circle(0.18f * w, 0.68f * h, STICK_RANGE * h * 0.45f, white, 0.15f);
+        overlay_push_circle(0.18f * w, 0.68f * h, STICK_RANGE * h, white, 0.08f * opacity);
+        overlay_push_circle(0.18f * w, 0.68f * h, STICK_RANGE * h * 0.45f, white, 0.15f * opacity);
     }
 
     for (int i = 0; i < TOUCH_BUTTON_COUNT; i++) {
         const struct TouchButton *b = &touch_buttons[i];
-        float alpha = button_is_held(i) ? 0.55f : 0.28f;
-        overlay_push_circle(b->cx * w, b->cy * h, b->r * h, b->color, alpha);
+        float alpha;
+
+        if (editing) {
+            alpha = (i == layout_drag_button) ? 0.85f : 0.45f;
+        } else {
+            alpha = (button_is_held(i) ? 0.55f : 0.28f) * opacity;
+        }
+        overlay_push_circle(b->cx * w, b->cy * h, button_radius(b), b->color, alpha);
     }
 
-    float arrow_alpha_base = 0.5f;
-    overlay_push_arrow(touch_buttons[TOUCH_C_UP].cx * w, touch_buttons[TOUCH_C_UP].cy * h,
-                       touch_buttons[TOUCH_C_UP].r * h, 0.0f, -1.0f, arrow_alpha_base);
-    overlay_push_arrow(touch_buttons[TOUCH_C_DOWN].cx * w, touch_buttons[TOUCH_C_DOWN].cy * h,
-                       touch_buttons[TOUCH_C_DOWN].r * h, 0.0f, 1.0f, arrow_alpha_base);
-    overlay_push_arrow(touch_buttons[TOUCH_C_LEFT].cx * w, touch_buttons[TOUCH_C_LEFT].cy * h,
-                       touch_buttons[TOUCH_C_LEFT].r * h, -1.0f, 0.0f, arrow_alpha_base);
-    overlay_push_arrow(touch_buttons[TOUCH_C_RIGHT].cx * w, touch_buttons[TOUCH_C_RIGHT].cy * h,
-                       touch_buttons[TOUCH_C_RIGHT].r * h, 1.0f, 0.0f, arrow_alpha_base);
+    {
+        float arrow_alpha_base = editing ? 0.6f : 0.5f * opacity;
+        static const struct { int id; float dx, dy; } arrows[] = {
+            { TOUCH_C_UP, 0.0f, -1.0f },   { TOUCH_C_DOWN, 0.0f, 1.0f },
+            { TOUCH_C_LEFT, -1.0f, 0.0f }, { TOUCH_C_RIGHT, 1.0f, 0.0f },
+        };
+        for (size_t i = 0; i < sizeof(arrows) / sizeof(arrows[0]); i++) {
+            const struct TouchButton *b = &touch_buttons[arrows[i].id];
+            overlay_push_arrow(b->cx * w, b->cy * h, button_radius(b),
+                               arrows[i].dx, arrows[i].dy, arrow_alpha_base);
+        }
+    }
 }
 
 // Builds the overlay for the current touch state and returns the vertex

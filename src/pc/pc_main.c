@@ -243,6 +243,7 @@ void main_func(void) {
 
     gShowDebugText = configDebugInfo;
     gShowProfiler = configDebugInfo;
+    gDebugLevelSelect = configLevelSelect;
 
 #ifdef TARGET_WEB
     emscripten_set_main_loop(em_main_loop, 0, 0);

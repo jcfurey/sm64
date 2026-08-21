@@ -9,7 +9,7 @@
 #   ./tools/porttest/gfx_bench 5000
 
 ROOT := ../..
-PROGRAMS := fs_atomic_test framerate_test gfx_pool_test gfx_bench
+PROGRAMS := fs_atomic_test framerate_test touch_layout_test gfx_pool_test gfx_bench
 
 CFLAGS := -O2 -g -Wall -Wextra -Wno-unused-parameter -std=gnu11 \
           -D_LANGUAGE_C -DVERSION_US=1 -DF3DEX_GBI_2E=1 -DNON_MATCHING=1 \
@@ -29,6 +29,20 @@ framerate_test: framerate_test.c $(ROOT)/src/pc/framerate.c $(ROOT)/src/pc/confi
 GFX_SRCS := $(ROOT)/src/pc/gfx/gfx_pc.c $(ROOT)/src/pc/gfx/gfx_dummy.c \
             $(ROOT)/src/pc/gfx/gfx_cc.c $(ROOT)/src/pc/configfile.c $(ROOT)/src/pc/fs.c
 
+# TARGET_IOS selects the touch code, and ENABLE_OPENGL is left off so no
+# GLES headers are needed. It is scoped to the two translation units that
+# want it: fs.c under TARGET_IOS resolves paths through SDL, which this test
+# has no reason to link against.
+touch_layout_test.o: touch_layout_test.c
+	$(CC) $(CFLAGS) -DTARGET_IOS -c -o $@ $<
+
+controller_touch_ios.o: $(ROOT)/src/pc/controller/controller_touch.c
+	$(CC) $(CFLAGS) -DTARGET_IOS -c -o $@ $<
+
+touch_layout_test: touch_layout_test.o controller_touch_ios.o \
+                   $(ROOT)/src/pc/configfile.c $(ROOT)/src/pc/fs.c
+	$(CC) $(CFLAGS) -o $@ $^ -lm
+
 gfx_pool_test: gfx_pool_test.c $(GFX_SRCS)
 	$(CC) $(CFLAGS) -o $@ $^ -lm
 
@@ -41,14 +55,17 @@ gfx_bench: gfx_bench.c $(ROOT)/src/pc/gfx/gfx_pc.c $(ROOT)/src/pc/gfx/gfx_dummy.
            $(ROOT)/src/pc/gfx/gfx_cc.c $(ROOT)/src/pc/configfile.c $(ROOT)/src/pc/fs.c
 	$(CC) $(CFLAGS) -o $@ $^ -lm
 
-check: fs_atomic_test framerate_test gfx_pool_test
+check: fs_atomic_test framerate_test touch_layout_test gfx_pool_test
 	./fs_atomic_test
 	@echo
 	./framerate_test
 	@echo
+	./touch_layout_test
+	@echo
 	./gfx_pool_test
 
 clean:
-	$(RM) $(PROGRAMS) gfx_pool_test_asan porttest_save.bin porttest_save.bin.tmp
+	$(RM) $(PROGRAMS) gfx_pool_test_asan *.o porttest_save.bin porttest_save.bin.tmp \
+	      sm64_touch_layout.txt sm64_touch_layout.txt.tmp
 
 .PHONY: all check clean

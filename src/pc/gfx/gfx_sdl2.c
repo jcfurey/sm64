@@ -388,6 +388,10 @@ static void gfx_sdl_onkeyup(int scancode) {
 // gets around to calling.
 static void save_state_before_suspend(void) {
     configfile_save_current();
+#ifdef TARGET_IOS
+    // No-op unless the player rearranged the on-screen controls
+    touch_layout_save();
+#endif
 }
 
 static void quit_now(void) {

@@ -13,6 +13,11 @@ extern bool         configRetroMode;
 extern bool         configShowFPS;
 extern bool         configHUD;
 extern bool         configDebugInfo;
+extern bool         configLevelSelect;
+// On-screen control size and opacity multipliers; opacity 0 hides the
+// overlay without disabling touch input
+extern float        configTouchScale;
+extern float        configTouchOpacity;
 extern unsigned int configKeyA;
 extern unsigned int configKeyB;
 extern unsigned int configKeyStart;

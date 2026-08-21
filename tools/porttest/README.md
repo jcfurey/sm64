@@ -36,6 +36,17 @@ The selection tests also pin down behavior that is easy to get wrong: a
 frame cap has to divide the display's refresh multiple or vsync pacing goes
 uneven, so 90 fps on a 120 Hz display deliberately rounds down to 60.
 
+## `touch_layout_test`
+
+Covers the on-screen control layout in
+`src/pc/controller/controller_touch.c`. Fixed button positions are the most
+common complaint about any mobile port, so the layout is adjustable and
+persisted, and the things worth pinning down are the ones that would strand
+a player: that the size setting actually widens the hit area, that a drag
+heading off screen is clamped back into view rather than putting a button
+somewhere unreachable, and that a damaged layout file degrades to the
+default instead of being applied.
+
 ## `gfx_pool_test`
 
 Feeds the interpreter more distinct colour combiner configurations than its

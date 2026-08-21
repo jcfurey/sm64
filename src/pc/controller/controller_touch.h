@@ -3,6 +3,8 @@
 
 #ifdef TARGET_IOS
 
+#include <stdbool.h>
+
 #include "controller_api.h"
 
 extern struct ControllerAPI controller_touch;
@@ -21,6 +23,18 @@ void touch_set_screen_size(int width, int height);
 // *num_verts vertices, interleaved [x, y, r, g, b, a] with x/y in
 // normalized device coordinates. The Metal backend draws this itself.
 const float *touch_overlay_build(int width, int height, int *num_verts);
+
+// On-screen control layout. It is loaded from the app's writable directory
+// on startup and rewritten when the player finishes rearranging it.
+//
+// While edit mode is on, touching a button drags it instead of pressing it,
+// and lifting a finger from empty space without having dragged anything
+// turns edit mode back off (and saves). The size and opacity settings live
+// in the config as configTouchScale / configTouchOpacity.
+void touch_layout_edit_set(bool on);
+bool touch_layout_edit_active(void);
+void touch_layout_reset(void);
+void touch_layout_save(void);
 
 #ifdef ENABLE_OPENGL
 // Draws the on-screen control overlay. Called by the window backend at the

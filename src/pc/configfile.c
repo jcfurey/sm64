@@ -37,6 +37,9 @@ bool configRetroMode             = false;
 bool configShowFPS               = false;
 bool configHUD                   = true;
 bool configDebugInfo             = false;
+bool configLevelSelect           = false;
+float configTouchScale           = 1.0f;
+float configTouchOpacity         = 1.0f;
 // Keyboard mappings (scancode values)
 unsigned int configKeyA          = 0x26;
 unsigned int configKeyB          = 0x33;
@@ -61,6 +64,9 @@ static const struct ConfigOption options[] = {
     {.name = "show_fps",       .type = CONFIG_TYPE_BOOL, .boolValue = &configShowFPS},
     {.name = "hud",            .type = CONFIG_TYPE_BOOL, .boolValue = &configHUD},
     {.name = "debug_info",     .type = CONFIG_TYPE_BOOL, .boolValue = &configDebugInfo},
+    {.name = "level_select",   .type = CONFIG_TYPE_BOOL, .boolValue = &configLevelSelect},
+    {.name = "touch_scale",    .type = CONFIG_TYPE_FLOAT, .floatValue = &configTouchScale},
+    {.name = "touch_opacity",  .type = CONFIG_TYPE_FLOAT, .floatValue = &configTouchOpacity},
     {.name = "key_a",          .type = CONFIG_TYPE_UINT, .uintValue = &configKeyA},
     {.name = "key_b",          .type = CONFIG_TYPE_UINT, .uintValue = &configKeyB},
     {.name = "key_start",      .type = CONFIG_TYPE_UINT, .uintValue = &configKeyStart},

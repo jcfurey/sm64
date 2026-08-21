@@ -87,6 +87,14 @@ Touch controls are drawn as a semi-transparent overlay:
 Bluetooth game controllers (Xbox, PlayStation, MFi) are supported through
 SDL's GameController API and can be used instead of the touch controls.
 
+The layout is not fixed. **Touch Size** and **Touch Alpha** in the options
+menu scale the controls and fade them (Hidden turns the overlay off
+entirely while leaving touch input working, for when a controller is
+attached), and **Move Buttons** starts a drag-to-place mode: drag any
+button where you want it, then tap an empty spot to finish. The result is
+saved to `sm64_touch_layout.txt` next to your save file — delete that file
+to go back to the default arrangement.
+
 ## In-game options menu
 
 Pause the game and press **R** to open the options menu (stick or D-pad to
@@ -107,7 +115,12 @@ persist in the app's config file:
   pillarbox bars, 240-line rendering scaled up (Metal), and a 30 fps lock.
 - **Show FPS** — rendered-frames-per-second counter.
 - **HUD** — hide the heads-up display for clean screenshots.
-- **Debug Info** — the game's built-in debug text and profiler overlays.
+- **Level Select** — the debug level select the game has always contained
+  but never exposed. With it on, exiting a course from the pause menu leads
+  to the level select rather than back to the castle.
+- **Debug Info** — the game's built-in debug text overlay. (The profiler it
+  also enables reads zero everywhere: it times itself with `osGetTime`,
+  which the port stubs out.)
 
 Save files and settings are stored in the app's sandbox and survive app
 updates (but not uninstalling). Both are written atomically — to a
