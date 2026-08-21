@@ -76,11 +76,33 @@ static void collision_view_add_surface(struct Surface *surf, f32 x, f32 z) {
     sTriCount++;
 }
 
+// Converts a world coordinate to its spatial partition cell index, the same
+// way the collision code itself does
+static s32 coord_to_cell(f32 coord) {
+    s32 cell = ((s32) coord + LEVEL_BOUNDARY_MAX) / CELL_SIZE;
+
+    if (cell < 0) {
+        cell = 0;
+    } else if (cell > NUM_CELLS_INDEX) {
+        cell = NUM_CELLS_INDEX;
+    }
+    return cell;
+}
+
+// Walks only the cells the draw radius can actually reach. The level's
+// partition is 16x16 cells of CELL_SIZE units each, so visiting all of them
+// meant touching every surface in the level to reject nearly all of them --
+// and letting distant geometry consume the triangle budget before nearby
+// geometry was reached.
 static void collision_view_walk_partition(SpatialPartitionCell (*partition)[NUM_CELLS], f32 x, f32 z) {
+    s32 minX = coord_to_cell(x - COLLISION_VIEW_RADIUS);
+    s32 maxX = coord_to_cell(x + COLLISION_VIEW_RADIUS);
+    s32 minZ = coord_to_cell(z - COLLISION_VIEW_RADIUS);
+    s32 maxZ = coord_to_cell(z + COLLISION_VIEW_RADIUS);
     s32 cellX, cellZ, list;
 
-    for (cellZ = 0; cellZ < NUM_CELLS; cellZ++) {
-        for (cellX = 0; cellX < NUM_CELLS; cellX++) {
+    for (cellZ = minZ; cellZ <= maxZ; cellZ++) {
+        for (cellX = minX; cellX <= maxX; cellX++) {
             for (list = 0; list < 3; list++) {
                 struct SurfaceNode *node = partition[cellZ][cellX][list].next;
                 while (node != NULL) {
@@ -129,7 +151,7 @@ void debug_view_append_collision(void) {
 
     if (sTriCount > 0) {
         extern void geo_append_debug_display_list(void *displayList, s16 layer);
-        geo_append_debug_display_list((void *) VIRTUAL_TO_PHYSICAL(dlStart), 6);
+        geo_append_debug_display_list((void *) VIRTUAL_TO_PHYSICAL(dlStart), LAYER_TRANSPARENT_DECAL);
     }
 }
 

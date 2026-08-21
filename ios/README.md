@@ -155,6 +155,13 @@ frames per second on ProMotion displays. `HIGH_FPS=0` builds the vanilla
 features; the GLES fallback ignores them (collision view and 4:3 work
 everywhere).
 
+Rendering a sub-frame re-runs the display list interpreter, which sounds
+expensive but measures at roughly 0.1 ms for a scene of a few thousand
+triangles — about 1% of the 33 ms logic frame even at 120 fps. The cost of
+a higher frame rate is on the GPU (four times the draw calls and fill), not
+in the interpreter, so the adaptive backoff above is what protects the game
+from it rather than any CPU-side caching.
+
 `PEDANTIC=1` is scoped to the modern platform code on purpose: the decompiled
 1996 game code relies on GNU C extensions and idioms that predate these
 warnings, so compiling it with `-Wpedantic` would bury real findings in

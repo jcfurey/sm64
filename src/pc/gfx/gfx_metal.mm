@@ -122,9 +122,6 @@ static struct {
     // Touch overlay
     id<MTLRenderPipelineState> overlay_pipeline;
     bool overlay_pipeline_failed;
-
-    // Native drawable size at init, restored when retro mode turns off
-    CGSize native_drawable_size;
 } mtl;
 
 //==============================================================================
@@ -451,7 +448,14 @@ static void ensure_depth_texture(void) {
                                                            width:mtl.render_width
                                                           height:mtl.render_height
                                                        mipmapped:NO];
+#ifdef TARGET_IOS
+    // The pass clears depth on load and discards it on store, so on a
+    // tile-based deferred GPU it never has to leave tile memory: memoryless
+    // costs no bandwidth and no allocation at all
+    desc.storageMode = MTLStorageModeMemoryless;
+#else
     desc.storageMode = MTLStorageModePrivate;
+#endif
     desc.usage = MTLTextureUsageRenderTarget;
     mtl.depth_texture = [mtl.device newTextureWithDescriptor:desc];
 }
@@ -701,8 +705,6 @@ static void gfx_metal_init(void) {
     // blocking is what paces the game loop
     mtl.layer.maximumDrawableCount = 2;
 
-    mtl.native_drawable_size = mtl.layer.drawableSize;
-
     mtl.queue = [mtl.device newCommandQueue];
     mtl.frame_semaphore = dispatch_semaphore_create(MAX_FRAMES_IN_FLIGHT);
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
@@ -724,13 +726,27 @@ static void gfx_metal_init(void) {
 static void gfx_metal_on_resize(void) {
 }
 
+// The layer's size in native pixels. Unlike drawableSize this is not
+// affected by retro mode overriding the resolution, so it stays correct
+// when the device is rotated or the window is resized.
+static CGSize native_layer_size(void) {
+    CGSize size = mtl.layer.bounds.size;
+    CGFloat scale = mtl.layer.contentsScale;
+
+    if (scale <= 0.0) {
+        scale = 1.0;
+    }
+    return CGSizeMake(round(size.width * scale), round(size.height * scale));
+}
+
 static void gfx_metal_start_frame(void) {
     // Retro mode renders at a 240-line drawable that the layer scales up,
     // approximating the N64's output resolution
-    if (mtl.native_drawable_size.height > 240.0) {
-        CGSize want = mtl.native_drawable_size;
+    CGSize native = native_layer_size();
+    if (native.width >= 1.0 && native.height > 240.0) {
+        CGSize want = native;
         if (configRetroMode) {
-            want.width = round(mtl.native_drawable_size.width * 240.0 / mtl.native_drawable_size.height);
+            want.width = round(native.width * 240.0 / native.height);
             want.height = 240.0;
         }
         CGSize cur = mtl.layer.drawableSize;
