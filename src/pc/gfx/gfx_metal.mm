@@ -121,6 +121,7 @@ static struct {
 
     // Touch overlay
     id<MTLRenderPipelineState> overlay_pipeline;
+    bool overlay_pipeline_failed;
 
     // Native drawable size at init, restored when retro mode turns off
     CGSize native_drawable_size;
@@ -382,7 +383,6 @@ static id<MTLRenderPipelineState> create_pipeline(id<MTLFunction> vs, id<MTLFunc
     if (pipeline == nil) {
         fprintf(stderr, "Metal pipeline creation failed: %s\n",
                 error != nil ? [[error localizedDescription] UTF8String] : "(unknown)");
-        abort();
     }
     return pipeline;
 }
@@ -395,9 +395,49 @@ static id<MTLLibrary> compile_library(const char *source) {
     if (lib == nil) {
         fprintf(stderr, "Metal shader compilation failed: %s\nSource:\n%s\n",
                 error != nil ? [[error localizedDescription] UTF8String] : "(unknown)", source);
-        abort();
     }
     return lib;
+}
+
+// Builds a pipeline from generated MSL, or nil if it does not compile
+static id<MTLRenderPipelineState> build_pipeline(const char *source, bool blend) {
+    id<MTLLibrary> lib = compile_library(source);
+    id<MTLFunction> vs, fs;
+
+    if (lib == nil) {
+        return nil;
+    }
+    vs = [lib newFunctionWithName:@"VSMain"];
+    fs = [lib newFunctionWithName:@"PSMain"];
+    if (vs == nil || fs == nil) {
+        return nil;
+    }
+    return create_pipeline(vs, fs, blend);
+}
+
+// Draws solid magenta, reading only the vertex position. Used when a
+// generated combiner shader fails to compile: the frame is wrong in an
+// obvious, reportable way instead of taking the process down with it. The
+// stride must still match what gfx_pc.c writes for this combiner, so it is
+// baked in from the real vertex layout.
+static id<MTLRenderPipelineState> build_fallback_pipeline(size_t num_floats, bool blend) {
+    char source[1024];
+
+    snprintf(source, sizeof(source),
+             "#include <metal_stdlib>\n"
+             "using namespace metal;\n"
+             "struct PSInput { float4 position [[position]]; };\n"
+             "vertex PSInput VSMain(uint vid [[vertex_id]], device const float *verts [[buffer(0)]]) {\n"
+             "    uint base = vid * %d;\n"
+             "    PSInput out;\n"
+             "    out.position = float4(verts[base], verts[base + 1], verts[base + 2], verts[base + 3]);\n"
+             "    return out;\n"
+             "}\n"
+             "fragment float4 PSMain(PSInput in [[stage_in]]) {\n"
+             "    return float4(1.0, 0.0, 1.0, 1.0);\n"
+             "}\n",
+             (int) num_floats);
+    return build_pipeline(source, blend);
 }
 
 static void ensure_depth_texture(void) {
@@ -466,13 +506,14 @@ static struct ShaderProgram *gfx_metal_create_and_load_new_shader(uint32_t shade
     size_t num_floats;
     generate_shader_source(buf, &cc_features, &num_floats);
 
-    id<MTLLibrary> lib = compile_library(buf);
-    id<MTLFunction> vs = [lib newFunctionWithName:@"VSMain"];
-    id<MTLFunction> fs = [lib newFunctionWithName:@"PSMain"];
-
     struct ShaderProgramMetal *prg = &mtl.shader_program_pool[mtl.shader_program_pool_size++];
     prg->shader_id = shader_id;
-    prg->pipeline = create_pipeline(vs, fs, cc_features.opt_alpha);
+    prg->pipeline = build_pipeline(buf, cc_features.opt_alpha);
+    if (prg->pipeline == nil) {
+        // Keep the reported vertex layout intact either way: gfx_pc.c has
+        // already decided the stride from these same combiner features
+        prg->pipeline = build_fallback_pipeline(num_floats, cc_features.opt_alpha);
+    }
     prg->num_inputs = cc_features.num_inputs;
     prg->num_floats = num_floats;
     prg->used_textures[0] = cc_features.used_textures[0];
@@ -511,6 +552,9 @@ static void gfx_metal_select_texture(int tile, uint32_t texture_id) {
 }
 
 static void gfx_metal_upload_texture(const uint8_t *rgba32_buf, int width, int height) {
+    if (width <= 0 || height <= 0) {
+        return;
+    }
     MTLTextureDescriptor *desc =
         [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
                                                            width:width
@@ -596,7 +640,7 @@ static void gfx_metal_set_use_alpha(bool use_alpha) {
 }
 
 static void gfx_metal_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris) {
-    if (mtl.encoder == nil) {
+    if (mtl.encoder == nil || mtl.shader_program == NULL || mtl.shader_program->pipeline == nil) {
         return;
     }
 
@@ -620,6 +664,10 @@ static void gfx_metal_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t
         if (mtl.shader_program->used_textures[i]) {
             id texture = mtl.textures[mtl.current_texture_ids[i]];
             id sampler = mtl.samplers[mtl.current_texture_ids[i]];
+            if (texture == [NSNull null] || sampler == [NSNull null]) {
+                // Nothing has been uploaded for this slot yet
+                continue;
+            }
             if ((__bridge void *) texture != mtl.last_textures[i]) {
                 mtl.last_textures[i] = (__bridge void *) texture;
                 [mtl.encoder setFragmentTexture:(id<MTLTexture>) texture atIndex:i];
@@ -750,26 +798,30 @@ static void gfx_metal_start_frame(void) {
 
 #ifdef TARGET_IOS
 static void ensure_overlay_pipeline(void) {
-    if (mtl.overlay_pipeline != nil) {
-        return;
-    }
     static const char overlay_src[] =
         "#include <metal_stdlib>\n"
         "using namespace metal;\n"
-        "struct OverlayOut { float4 position [[position]]; float4 color; };\n"
-        "vertex OverlayOut OverlayVS(uint vid [[vertex_id]], device const float *verts [[buffer(0)]]) {\n"
+        "struct PSInput { float4 position [[position]]; float4 color; };\n"
+        "vertex PSInput VSMain(uint vid [[vertex_id]], device const float *verts [[buffer(0)]]) {\n"
         "    uint base = vid * 6;\n"
-        "    OverlayOut out;\n"
+        "    PSInput out;\n"
         "    out.position = float4(verts[base], verts[base + 1], 0.0, 1.0);\n"
         "    out.color = float4(verts[base + 2], verts[base + 3], verts[base + 4], verts[base + 5]);\n"
         "    return out;\n"
         "}\n"
-        "fragment float4 OverlayPS(OverlayOut in [[stage_in]]) {\n"
+        "fragment float4 PSMain(PSInput in [[stage_in]]) {\n"
         "    return in.color;\n"
         "}\n";
-    id<MTLLibrary> lib = compile_library(overlay_src);
-    mtl.overlay_pipeline = create_pipeline([lib newFunctionWithName:@"OverlayVS"],
-                                           [lib newFunctionWithName:@"OverlayPS"], true);
+
+    if (mtl.overlay_pipeline != nil || mtl.overlay_pipeline_failed) {
+        return;
+    }
+    mtl.overlay_pipeline = build_pipeline(overlay_src, true);
+    if (mtl.overlay_pipeline == nil) {
+        // Do not retry every frame; without the overlay the game is still
+        // playable with a hardware controller
+        mtl.overlay_pipeline_failed = true;
+    }
 }
 
 static void draw_touch_overlay(void) {
@@ -780,6 +832,9 @@ static void draw_touch_overlay(void) {
     }
 
     ensure_overlay_pipeline();
+    if (mtl.overlay_pipeline == nil) {
+        return;
+    }
 
     MTLViewport full_viewport = { 0.0, 0.0, (double) mtl.render_width, (double) mtl.render_height, 0.0, 1.0 };
     MTLScissorRect full_scissor = { 0, 0, mtl.render_width, mtl.render_height };

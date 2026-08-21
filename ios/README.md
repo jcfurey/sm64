@@ -95,7 +95,11 @@ persist in the app's config file:
 
 - **Frame Rate** — Auto (match the display: 120 on ProMotion, 60 otherwise),
   or a fixed 30/60/90/120 cap. Game logic always runs at its native 30 Hz;
-  higher rates render interpolated frames between logic frames.
+  higher rates render interpolated frames between logic frames. The row
+  shows the rate actually being rendered when it differs from the one
+  selected — a cap that does not divide the display's refresh rate is
+  rounded down so pacing stays even, and a device that cannot sustain the
+  rate is stepped down automatically (see below).
 - **View** — Normal, Wireframe (Metal renderer), or Collision, which draws
   the collision mesh around Mario as translucent triangles: floors green,
   ceilings red, walls blue.
@@ -106,7 +110,21 @@ persist in the app's config file:
 - **Debug Info** — the game's built-in debug text and profiler overlays.
 
 Save files and settings are stored in the app's sandbox and survive app
-updates (but not uninstalling).
+updates (but not uninstalling). Both are written atomically — to a
+temporary file that is flushed to storage and then renamed into place — so
+being killed by the system mid-write cannot leave a truncated save behind.
+Settings are also flushed when the app is sent to the background, since iOS
+terminates suspended apps without running any exit handlers.
+
+## Frame pacing under load
+
+Sub-frames are rendered inside the same 1/30 s that the game logic runs in,
+so a device that cannot draw them all would otherwise fall behind on logic
+frames and run the game in slow motion. The port measures how long each
+logic frame actually takes and gives up a sub-frame after sustained
+lateness — 120 fps steps down to 60, and 60 to 30 — earning it back after
+about ten seconds of clean frames. Brief hitches such as level loads are
+ignored rather than counted against the frame rate.
 
 ## Build options
 
@@ -122,7 +140,13 @@ updates (but not uninstalling).
 | `IOS_SIGN_IDENTITY` | `-` (ad-hoc) | Codesigning identity |
 | `IOS_SDL2_PATH` | `ios/SDL2` | Where the static SDL2 lives |
 
-The iOS build compiles with `-O3 -flto` (link-time optimization) by default.
+The iOS build compiles with `-O3 -flto -DNDEBUG` by default. `NDEBUG`
+disables the display list interpreter's assertions, which would otherwise
+abort a shipped app on a command it does not recognize; the bounds they
+guarded are enforced at runtime instead, and an unsupported texture format
+or a shader that fails to compile now renders as magenta rather than
+terminating the process.
+
 Game logic always runs at the native 30 Hz; with `HIGH_FPS=1` (the default)
 each logic frame is rendered up to 4 times with everything interpolated
 between the previous and current game state, reaching a real 120 rendered

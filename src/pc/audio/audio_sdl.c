@@ -46,6 +46,21 @@ static void audio_sdl_play(const uint8_t *buf, size_t len) {
     }
 }
 
+// Stops the device while the app is suspended and discards the backlog on
+// the way back, so resuming does not replay stale audio or spend the first
+// seconds dropping samples because the queue looks full
+void audio_sdl_pause(bool pause) {
+    if (dev == 0) {
+        return;
+    }
+    if (pause) {
+        SDL_PauseAudioDevice(dev, 1);
+    } else {
+        SDL_ClearQueuedAudio(dev);
+        SDL_PauseAudioDevice(dev, 0);
+    }
+}
+
 struct AudioAPI audio_sdl = {
     audio_sdl_init,
     audio_sdl_buffered,

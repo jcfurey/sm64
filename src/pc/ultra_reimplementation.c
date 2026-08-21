@@ -177,12 +177,10 @@ s32 osEepromLongWrite(UNUSED OSMesgQueue *mq, u8 address, u8 *buffer, int nbytes
     }, content);
     s32 ret = 0;
 #else
-    FILE* fp = fopen(fs_get_write_path("sm64_save_file.bin"), "wb");
-    if (fp == NULL) {
-        return -1;
-    }
-    s32 ret = fwrite(content, 1, 512, fp) == 512 ? 0 : -1;
-    fclose(fp);
+    // Written atomically: the game rewrites the whole 512-byte EEPROM image
+    // on every star, and a truncating write interrupted by an app kill would
+    // wipe the save file outright
+    s32 ret = fs_write_file_atomic(fs_get_write_path("sm64_save_file.bin"), content, 512) ? 0 : -1;
 #endif
     return ret;
 }
@@ -214,4 +212,5 @@ OSPiHandle *osDriveRomInit(void) {
 s32 osEPiStartDma(UNUSED OSPiHandle *pihandle, OSIoMesg *mb, UNUSED s32 direction) {
     memcpy(mb->dramAddr, (const void *) mb->devAddr, mb->size);
     osSendMesg(mb->hdr.retQueue, mb, OS_MESG_NOBLOCK);
+    return 0;
 }

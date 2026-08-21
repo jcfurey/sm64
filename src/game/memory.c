@@ -235,6 +235,9 @@ u32 main_pool_pop_state(void) {
     struct MainPoolState *prevState = gMainPoolState->prev;
     main_pool_free(gMainPoolState);
     gMainPoolState = prevState;
+    // The system-malloc pool has no free-space figure to report; every
+    // caller discards it, and push_state likewise returns 0
+    return 0;
 }
 #else
 /**

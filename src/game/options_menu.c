@@ -6,6 +6,8 @@
 
 #ifndef TARGET_N64
 
+#include <stdio.h>
+
 #include <PR/ultratypes.h>
 #include <PR/gbi.h>
 
@@ -17,6 +19,9 @@
 #include "options_menu.h"
 
 #include "pc/configfile.h"
+#ifdef HIGH_FPS_PC
+#include "pc/framerate.h"
+#endif
 
 // Defined in ingame_menu.c but not declared in its header
 void shade_screen(void);
@@ -153,6 +158,37 @@ static void opt_print(s16 x, s16 y, const char *str) {
     print_generic_string(x, y, buf);
 }
 
+// Renders an option's current value. The frame rate the game actually
+// reaches is not always the one that was picked: AUTO resolves to whatever
+// the display can do, a cap that does not divide the refresh rate is
+// rounded down so vsync pacing stays even, and the adaptive backoff lowers
+// it further on a device that cannot keep up. Show that number rather than
+// letting the menu claim a rate the game is not running at.
+static void opt_print_value(s16 x, s16 y, s32 id) {
+    const char *selected = sOptions[id].choices[opt_get(id)];
+
+#ifdef HIGH_FPS_PC
+    if (id == OPT_FRAME_CAP) {
+        char text[OPT_MAX_TEXT];
+        s32 actual = 30 * gRenderSubframes;
+        s32 chosen = 0;
+        const char *c;
+
+        for (c = selected; *c >= '0' && *c <= '9'; c++) {
+            chosen = chosen * 10 + (*c - '0');
+        }
+        if (chosen != actual) {
+            // "AUTO 120", or "120 - 60" when the request could not be met
+            sprintf(text, chosen == 0 ? "%s %d" : "%s - %d", selected, actual);
+            opt_print(x, y, text);
+            return;
+        }
+    }
+#endif
+
+    opt_print(x, y, selected);
+}
+
 static void optmenu_draw(void) {
     s32 i;
 
@@ -172,7 +208,7 @@ static void optmenu_draw(void) {
             gDPSetEnvColor(gDisplayListHead++, 200, 200, 200, 255);
         }
         opt_print(60, y, sOptions[i].label);
-        opt_print(190, y, sOptions[i].choices[opt_get(i)]);
+        opt_print_value(190, y, i);
     }
 
     gDPSetEnvColor(gDisplayListHead++, 160, 160, 160, 255);

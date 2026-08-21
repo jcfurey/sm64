@@ -7,6 +7,7 @@
 #include <ctype.h>
 
 #include "configfile.h"
+#include "fs.h"
 
 #define ARRAY_LEN(arr) (sizeof(arr) / sizeof(arr[0]))
 
@@ -220,7 +221,7 @@ void configfile_save(const char *filename) {
 
     printf("Saving configuration to '%s'\n", filename);
 
-    file = fopen(filename, "w");
+    file = fs_open_atomic(filename);
     if (file == NULL) {
         // error
         return;
@@ -244,5 +245,5 @@ void configfile_save(const char *filename) {
         }
     }
 
-    fclose(file);
+    fs_close_atomic(file, filename);
 }

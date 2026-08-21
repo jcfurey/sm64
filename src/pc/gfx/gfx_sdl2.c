@@ -25,6 +25,11 @@
 
 #include "gfx_window_manager_api.h"
 #include "gfx_screen_config.h"
+#include "../configfile.h"
+
+#ifdef TARGET_IOS
+#include "../audio/audio_sdl.h"
+#endif
 
 #ifdef ENABLE_METAL
 #include "gfx_metal.h"
@@ -134,7 +139,7 @@ static void set_fullscreen(bool on, bool call_callback) {
 }
 
 #ifdef ENABLE_OPENGL
-int test_vsync(void) {
+static void test_vsync(void) {
     // Even if SDL_GL_SetSwapInterval succeeds, it doesn't mean that VSync actually works.
     // A 60 Hz monitor should have a swap interval of 16.67 milliseconds.
     // Try to detect the length of a vsync by swapping buffers some times.
@@ -313,8 +318,10 @@ static void gfx_sdl_init(const char *game_name, bool start_in_fullscreen) {
     }
 
     for (size_t i = 0; i < sizeof(scancode_rmapping_nonextended) / sizeof(scancode_rmapping_nonextended[0]); i++) {
-        inverted_scancode_table[scancode_rmapping_extended[i][0]] = inverted_scancode_table[scancode_rmapping_extended[i][1]];
-        inverted_scancode_table[scancode_rmapping_extended[i][1]] += 0x100;
+        // This loop walks the non-extended table; indexing the extended one
+        // here (as it used to) ran off the end of a four-element array
+        inverted_scancode_table[scancode_rmapping_nonextended[i][0]] = inverted_scancode_table[scancode_rmapping_nonextended[i][1]];
+        inverted_scancode_table[scancode_rmapping_nonextended[i][1]] += 0x100;
     }
 }
 
@@ -375,10 +382,62 @@ static void gfx_sdl_onkeyup(int scancode) {
     }
 }
 
+// Persists everything the process owns that is not already on disk. The
+// system can kill a suspended app without any further notice, so this runs
+// before backgrounding rather than from an atexit handler, which iOS never
+// gets around to calling.
+static void save_state_before_suspend(void) {
+    configfile_save_current();
+}
+
+static void quit_now(void) {
+    save_state_before_suspend();
+    exit(0);
+}
+
+// Parks the game loop while the app is in the background. Submitting GPU
+// work while suspended gets the app killed by the system, and spinning the
+// loop drains the battery for a game nobody is looking at, so block on the
+// event queue (which keeps pumping the platform run loop) until the system
+// brings us back.
+static void wait_for_foreground(void) {
+    SDL_Event event;
+
+#ifdef TARGET_IOS
+    audio_sdl_pause(true);
+#endif
+
+    while (SDL_WaitEvent(&event)) {
+        if (event.type == SDL_APP_WILLENTERFOREGROUND || event.type == SDL_APP_DIDENTERFOREGROUND) {
+            break;
+        }
+        if (event.type == SDL_APP_TERMINATING || event.type == SDL_QUIT) {
+            quit_now();
+        }
+    }
+
+#ifdef TARGET_IOS
+    audio_sdl_pause(false);
+#endif
+}
+
 static void gfx_sdl_handle_events(void) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
         switch (event.type) {
+            case SDL_APP_WILLENTERBACKGROUND:
+                save_state_before_suspend();
+                break;
+            case SDL_APP_DIDENTERBACKGROUND:
+                wait_for_foreground();
+                break;
+            case SDL_APP_TERMINATING:
+                quit_now();
+                break;
+            case SDL_APP_LOWMEMORY:
+            case SDL_APP_WILLENTERFOREGROUND:
+            case SDL_APP_DIDENTERFOREGROUND:
+                break;
 #ifndef TARGET_WEB
             // Scancodes are broken in Emscripten SDL2: https://bugzilla.libsdl.org/show_bug.cgi?id=3259
             case SDL_KEYDOWN:
@@ -419,7 +478,7 @@ static void gfx_sdl_handle_events(void) {
                 }
                 break;
             case SDL_QUIT:
-                exit(0);
+                quit_now();
         }
     }
 }

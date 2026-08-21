@@ -219,8 +219,11 @@ ifeq ($(TARGET_N64),0)
     OPT_FLAGS += -g4 --source-map-base http://localhost:8080/
   endif
   ifeq ($(TARGET_IOS),1)
-    # Full optimization for modern arm64 devices
-    OPT_FLAGS := -O3 -flto
+    # Full optimization for modern arm64 devices. NDEBUG disables the
+    # display list interpreter's assertions: a shipped app should render
+    # something wrong rather than abort on a command it does not recognize,
+    # and the bounds they used to guard are enforced at runtime instead.
+    OPT_FLAGS := -O3 -flto -DNDEBUG
   endif
 endif
 
