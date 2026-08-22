@@ -28,7 +28,7 @@
 #include "../configfile.h"
 
 #ifdef TARGET_IOS
-#include "../audio/audio_sdl.h"
+#include "../ios_support.h"
 #endif
 
 #ifdef ENABLE_METAL
@@ -464,7 +464,7 @@ static void wait_for_foreground(void) {
     SDL_Event event;
 
 #ifdef TARGET_IOS
-    audio_sdl_pause(true);
+    ios_audio_session_set_app_active(false);
 #endif
 
     while (SDL_WaitEvent(&event)) {
@@ -477,7 +477,7 @@ static void wait_for_foreground(void) {
     }
 
 #ifdef TARGET_IOS
-    audio_sdl_pause(false);
+    ios_audio_session_set_app_active(true);
 
     // Touch-cancel and finger-up events raised as iOS took the touch stream
     // away were consumed above, so any finger still recorded as down would

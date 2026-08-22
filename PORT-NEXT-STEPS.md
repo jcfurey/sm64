@@ -37,6 +37,15 @@ landscape-only layout files, and cap physical control size on large tablets.
 `touch_layout_test` covers compact phone, Dynamic Island phone, and 13-inch
 iPad geometries in both aspect directions.
 
+Portrait now presents the complete 4:3 game frame below the top safe area and
+uses the remaining height as a control deck instead of center-cropping the
+scene. Touch buttons provide optional light haptics and can hide automatically
+while a controller is connected. A dedicated controller screen remaps every
+gameplay button and persists validated bindings. The audio layer now has an
+explicit Ambient AVAudioSession policy with interruption, route-change, media
+reset, and background handling. All of those decisions have ROM-free tests,
+which also run in GitHub Actions.
+
 **Not** verified: anything on physical hardware — no device was connected. The
 `jp` build has never been run here either; it needs `baserom.jp.z64`.
 
@@ -89,54 +98,29 @@ The same change replaced `.gitignore`'s per-executable porttest list with
 
 ---
 
-## Lane 3 — haptics and controller remapping
+## Lane 3 — haptics and controller remapping (completed)
 
 ### 3.1 Haptics on the touch controls
 
-`CoreHaptics` is linked in `PLATFORM_LDFLAGS`, but nothing under `src/`
-references it — it is there for SDL's MFi controller rumble. On-screen buttons
-give no physical feedback at all.
+On-screen buttons use a light `UIImpactFeedbackGenerator` behind a callback
+installed by `ios_support.mm`. The touch layer owns the transition decision,
+so `touch_layout_test` verifies that a press fires once while layout dragging
+does not fire at all. The option is user-configurable.
 
-The press and release transitions already exist in
-`src/pc/controller/controller_touch.c`; that is where a tap would fire.
-`UIImpactFeedbackGenerator` (UIKit) is markedly simpler than CoreHaptics for
-this and is the right default; either way it needs an Objective-C shim, the way
-`gfx_metal.mm` is one.
+### 3.2 Controller bindings
 
-**Make it testable by construction.** Put the feedback behind a function
-pointer the platform layer fills in. `touch_layout_test` already drives press,
-drag and edit-mode transitions through the real hit-testing code, so it can
-then assert the obvious rules — a tap fires once, a drag that moves a button
-fires nothing, edit mode does not buzz on every frame — with a counter standing
-in for the device.
-
-### 3.2 Controller bindings are compile-time constants
-
-`src/pc/controller/controller_sdl.c` hardcodes the mapping:
-
-```c
-if (SDL_GameControllerGetButton(sdl_cntrl, SDL_CONTROLLER_BUTTON_A)) pad->button |= A_BUTTON;
-```
-
-and `src/pc/configfile.h` stores only keyboard scancodes — `configKeyA` through
-`configKeyStickRight`. There is no gamepad binding in the config at all, so a
-controller whose layout the player dislikes cannot be changed.
-
-Work: config entries for gamepad bindings, a remap path through
-`controller_sdl.c`, and menu UI to drive it.
-
-**The mapping is a pure function** — SDL button in, N64 button mask out — which
-makes it the easy half to pin. A `controller_map_test` in `tools/porttest`
-covers the defaults, a round-trip through `configfile`, and what happens to
-out-of-range or unknown values, in the same shape `touch_layout_test` already
-uses for the layout. Write the mapping as a table the test can read rather than
-a chain of `if`s, and the test stays honest as bindings are added.
+`controller_gamepad.c` converts a platform-neutral snapshot into N64 input by
+table, including trigger and right-stick directions. The Controller options
+screen edits those bindings, config loading rejects out-of-range values, and
+`controller_map_test` covers defaults, remapping, persistence, and controller
+presence. SDL now only translates its API into that neutral snapshot.
 
 ---
 
-## Lane 4 — the audio session
+## Lane 4 — the audio session (completed in software)
 
-**Flagged as the weakest of the four, and the reason is worth keeping.**
+The software policy is complete; real interruptions and route changes still
+belong in the physical-device verification pass.
 
 Lifecycle is already handled. `src/pc/gfx/gfx_sdl2.c` responds to
 `SDL_APP_WILLENTERBACKGROUND` with `save_state_before_suspend()` and to
@@ -144,27 +128,12 @@ Lifecycle is already handled. `src/pc/gfx/gfx_sdl2.c` responds to
 `framerate_reset()` discards pacing history on resume, so measurements taken
 across a suspension do not distort the backoff.
 
-What is *not* handled: nothing in `src/` mentions `AVAudioSession`,
-`setCategory`, or any interruption notification. The session category is
-therefore whatever the default is, which leaves all of these unverified —
-
-- the ringer/silent switch,
-- an incoming call or other interruption, and whether audio resumes after,
-- another app already playing audio,
-- headphones unplugged, or any route change mid-game.
-
-Deciding the category is a product question, not a technical one: `Ambient`
-lets other audio keep playing and respects the silent switch, `Playback` takes
-over and ignores it. Pick deliberately.
-
-**Why this is hard to test.** The simulator reproduces route changes and
-backgrounding but not a phone call, and the interesting cases are exactly the
-ones that need real hardware. The honest structure is to make the *policy* a
-pure function — event and current state in, desired state out — in a
-translation unit `porttest` can link, test that exhaustively, and keep the
-`AVAudioSession` binding underneath it thin enough to verify by hand. That way
-the untestable part stays small and obvious instead of being spread through the
-audio backend.
+`ios_support.mm` deliberately selects `Ambient`, so the game respects the
+silent switch and mixes with existing audio. It observes interruptions, route
+changes, and media-service resets; the existing SDL lifecycle path reports
+background and foreground transitions into the same state machine. The pure C
+policy is covered by `audio_session_policy_test`, while the Objective-C binding
+is kept to category setup, notifications, and applying the policy decision.
 
 ---
 

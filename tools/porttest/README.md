@@ -47,6 +47,29 @@ heading off screen is clamped back into view rather than putting a button
 somewhere unreachable, and that a damaged layout file degrades to the
 default instead of being applied.
 
+It also verifies safe-area behavior across representative phones and tablets,
+portrait control scaling, one-shot haptic transitions, and automatic overlay
+visibility when a gamepad connects.
+
+## `viewport_layout_test`
+
+Covers the native-drawable rectangle used for the game. Landscape stays
+full-screen, Retro Mode remains centered at 4:3 on wide displays, and iPhone
+and iPad portrait layouts fit a complete 4:3 panel below the top safe area.
+
+## `audio_session_policy_test`
+
+Exercises the platform-independent state machine beneath AVAudioSession:
+backgrounding, interruptions that may or may not resume, foregrounding, and
+route changes. The Objective-C binding is intentionally thin; all playback
+decisions remain testable without an Apple runtime.
+
+## `controller_map_test`
+
+Covers default SDL-style gamepad mappings, triggers and right-stick virtual
+buttons, remapping, config round-trips, invalid saved values, D-pad menu access,
+and the controller-presence state used by the touch overlay.
+
 ## `gfx_pool_test`
 
 Feeds the interpreter more distinct colour combiner configurations than its

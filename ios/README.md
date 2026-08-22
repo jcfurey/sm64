@@ -126,6 +126,11 @@ Touch controls are drawn as a semi-transparent overlay:
 Bluetooth game controllers (Xbox, PlayStation, MFi) are supported through
 SDL's GameController API and can be used instead of the touch controls.
 
+In portrait, the complete 4:3 game picture is fitted directly below the top
+safe area, leaving the lower portion of the display as a dedicated control
+deck. This avoids the severe center crop a 4:3 scene would otherwise receive
+on a tall phone. Landscape remains full-screen.
+
 The overlay follows the live UIKit safe area, so controls stay clear of the
 Dynamic Island/notch, rounded corners, and home indicator as the device rotates.
 It uses separate portrait and landscape arrangements whose positions adapt to
@@ -135,14 +140,20 @@ so the same build remains usable from compact iPhones through 13-inch iPads.
 Modern iPhones without a Home button may ignore upside-down portrait even
 though the app declares it; that decision belongs to UIKit.
 
-The layout is not fixed. **Touch Size** and **Touch Alpha** in the options
-menu scale the controls and fade them (Hidden turns the overlay off
-entirely while leaving touch input working, for when a controller is
-attached), and **Move Buttons** starts a drag-to-place mode: drag any
-button where you want it, then tap an empty spot to finish. The result is
-saved to `sm64_touch_layout.txt` next to your save file — delete that file
-to go back to the default arrangement. Portrait and landscape edits are saved
-independently; an older landscape-only layout file is imported automatically.
+The layout is not fixed. The **Touch Controls** options screen provides
+**Touch Size** and **Touch Alpha** (Hidden removes the overlay while leaving
+touch input working), light impact **Touch Haptics**, and **Hide for Pad**,
+which automatically removes the overlay while a hardware controller is
+connected. **Move Buttons** starts a drag-to-place mode: drag any button where
+you want it, then tap an empty spot to finish. The result is saved to
+`sm64_touch_layout.txt` next to your save file — delete that file to go back to
+the default arrangement. Portrait and landscape edits are saved independently;
+an older landscape-only layout file is imported automatically.
+
+The **Controller** options screen remaps N64 A, B, Start, Z, R, and each C
+direction to face buttons, shoulders, triggers, D-pad directions, or right-stick
+directions. The physical D-pad always continues to navigate menus, and **Reset
+Mapping** restores the defaults. Bindings are persisted in `sm64config.txt`.
 
 ## In-game options menu
 
@@ -192,6 +203,11 @@ then renamed into place — so being killed by the system mid-write cannot leave
 a truncated save behind. Settings are also flushed when the app is sent to the
 background, since iOS terminates suspended apps without running any exit
 handlers.
+
+The app uses an `Ambient` AVAudioSession: it respects the silent switch and
+allows music or podcasts from another app to continue. Incoming interruptions,
+backgrounding, output-route changes, and media-service resets pause or flush
+SDL's queued audio as appropriate so stale samples are not replayed on resume.
 
 ## Frame pacing under load
 

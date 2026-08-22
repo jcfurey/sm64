@@ -50,6 +50,19 @@ if [ ! -f "$SCENE_PATCH" ]; then
     exit 1
 fi
 
+# The extracted tree is ignored and reused between builds. If the maintained
+# patch changes, start from the tarball again rather than leaving an older
+# already-patched tree in place (where neither forward nor reverse patching is
+# valid anymore).
+PATCH_STAMP="$WORK_DIR/.SDL2-$SDL2_VERSION-uiscene.sha256"
+PATCH_HASH="$(shasum -a 256 "$SCENE_PATCH" | awk '{print $1}')"
+if [ -d "SDL2-$SDL2_VERSION" ] &&
+   { [ ! -f "$PATCH_STAMP" ] || [ "$(<"$PATCH_STAMP")" != "$PATCH_HASH" ]; }; then
+    echo "UIScene patch changed; refreshing the SDL2 source tree..."
+    rm -rf "SDL2-$SDL2_VERSION"
+    tar xzf "$TARBALL"
+fi
+
 if patch --dry-run -s -N -d "SDL2-$SDL2_VERSION" -p1 < "$SCENE_PATCH" >/dev/null 2>&1; then
     echo "Applying SDL2 UIScene lifecycle patch..."
     patch -s -N -d "SDL2-$SDL2_VERSION" -p1 < "$SCENE_PATCH"
@@ -59,6 +72,7 @@ else
     echo "SDL2 UIScene lifecycle patch does not apply cleanly" >&2
     exit 1
 fi
+echo "$PATCH_HASH" > "$PATCH_STAMP"
 
 echo "Building SDL2 static library for $IOS_SDK..."
 xcodebuild build \

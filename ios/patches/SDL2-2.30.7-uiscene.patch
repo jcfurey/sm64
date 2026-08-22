@@ -1,6 +1,6 @@
 --- a/src/video/uikit/SDL_uikitappdelegate.h
 +++ b/src/video/uikit/SDL_uikitappdelegate.h
-@@ -29,6 +29,16 @@
+@@ -29,6 +29,15 @@
  
  @end
  
@@ -8,7 +8,6 @@
 +@interface SDLUIKitSceneDelegate : NSObject<UIApplicationDelegate, UIWindowSceneDelegate>
 +
 ++ (NSString *)getSceneDelegateClassName;
-+- (void)hideLaunchScreen;
 +
 +@end
 +
@@ -36,7 +35,7 @@
      }
  
      /* free the memory we used to hold copies of argc and argv */
-@@ -342,7 +347,170 @@
+@@ -342,7 +347,120 @@
  #endif /* !TARGET_OS_TV */
  
  @end
@@ -50,7 +49,6 @@
 +
 +API_AVAILABLE(ios(13.0))
 +@implementation SDLUIKitSceneDelegate {
-+    UIWindow *launchWindow;
 +    NSMutableArray<NSURL *> *launchURLs;
 +}
  
@@ -88,36 +86,9 @@
 +    SDLUIKitWindowScene = windowScene;
 +    NSBundle *bundle = [NSBundle mainBundle];
 +
-+#ifdef SDL_IPHONE_LAUNCHSCREEN
-+    UIViewController *vc = nil;
-+    NSString *screenname = nil;
-+
-+#if !TARGET_OS_TV
-+    screenname = [bundle objectForInfoDictionaryKey:@"UILaunchStoryboardName"];
-+    if (screenname) {
-+        @try {
-+            UIStoryboard *storyboard = [UIStoryboard storyboardWithName:screenname bundle:bundle];
-+            __auto_type storyboardVc = [storyboard instantiateInitialViewController];
-+            vc = [[SDLLaunchStoryboardViewController alloc] initWithStoryboardViewController:storyboardVc];
-+        }
-+        @catch (NSException *exception) {
-+            /* Fall through to the image-based launch screen. */
-+        }
-+    }
-+#endif
-+
-+    if (vc == nil) {
-+        vc = [[SDLLaunchScreenController alloc] initWithNibName:screenname bundle:bundle];
-+    }
-+
-+    if (vc.view) {
-+        launchWindow = [[UIWindow alloc] initWithWindowScene:windowScene];
-+        launchWindow.frame = windowScene.coordinateSpace.bounds;
-+        launchWindow.windowLevel = UIWindowLevelNormal + 1.0;
-+        launchWindow.hidden = NO;
-+        launchWindow.rootViewController = vc;
-+    }
-+#endif
++    /* UIScene owns the system launch snapshot. Creating a second launch
++     * UIWindow here overlaps SDL's game-window appearance transition and
++     * triggers UIKit's unbalanced-transition diagnostic. */
 +
 +    [[NSFileManager defaultManager] changeCurrentDirectoryPath:[bundle resourcePath]];
 +
@@ -171,35 +142,13 @@
 +    launchURLs = nil;
 +}
 +
-+- (void)hideLaunchScreen
-+{
-+    UIWindow *window = launchWindow;
-+    if (!window || window.hidden) {
-+        return;
-+    }
-+
-+    launchWindow = nil;
-+    [UIView animateWithDuration:0.2 animations:^{
-+        window.alpha = 0.0;
-+    } completion:^(BOOL finished) {
-+        window.hidden = YES;
-+        UIKit_ForceUpdateHomeIndicator();
-+    }];
-+}
-+
 +- (void)postFinishLaunch
 +{
-+    [self performSelector:@selector(hideLaunchScreen) withObject:nil afterDelay:0.0];
 +    [self performSelector:@selector(processLaunchURLs) withObject:nil afterDelay:0.0];
 +
 +    SDL_iPhoneSetEventPump(SDL_TRUE);
 +    exit_status = forward_main(forward_argc, forward_argv);
 +    SDL_iPhoneSetEventPump(SDL_FALSE);
-+
-+    if (launchWindow) {
-+        launchWindow.hidden = YES;
-+        launchWindow = nil;
-+    }
 +}
 +
 +@end
@@ -207,6 +156,34 @@
  @implementation SDLUIKitDelegate {
      UIWindow *launchWindow;
  }
+--- a/src/video/uikit/SDL_uikitview.m
++++ b/src/video/uikit/SDL_uikitview.m
+@@ -117,2 +117,10 @@
+-        data.uiwindow.rootViewController = nil;
+-        data.uiwindow.rootViewController = data.viewcontroller;
++        if (@available(iOS 13.0, *)) {
++            if (data.uiwindow.rootViewController != data.viewcontroller) {
++                data.uiwindow.rootViewController = data.viewcontroller;
++            } else {
++                [data.uiwindow addSubview:data.viewcontroller.view];
++            }
++        } else {
++            data.uiwindow.rootViewController = nil;
++            data.uiwindow.rootViewController = data.viewcontroller;
++        }
+@@ -139,2 +147,10 @@
+-        data.uiwindow.rootViewController = nil;
+-        data.uiwindow.rootViewController = data.viewcontroller;
++        if (@available(iOS 13.0, *)) {
++            if (data.uiwindow.rootViewController != data.viewcontroller) {
++                data.uiwindow.rootViewController = data.viewcontroller;
++            } else {
++                [data.uiwindow addSubview:data.viewcontroller.view];
++            }
++        } else {
++            data.uiwindow.rootViewController = nil;
++            data.uiwindow.rootViewController = data.viewcontroller;
++        }
 --- a/src/video/uikit/SDL_uikitwindow.m
 +++ b/src/video/uikit/SDL_uikitwindow.m
 @@ -202,9 +202,20 @@

@@ -21,6 +21,9 @@
 
 #include "pc/configfile.h"
 #include "pc/controller/controller_touch.h"
+#ifdef TARGET_IOS
+#include "pc/controller/controller_gamepad.h"
+#endif
 #ifdef HIGH_FPS_PC
 #include "pc/framerate.h"
 #endif
@@ -45,9 +48,23 @@ enum OptionId {
     OPT_SHOW_FPS,
     OPT_HUD,
 #ifdef TARGET_IOS
+    OPT_TOUCH_CONTROLS,
     OPT_TOUCH_SIZE,
     OPT_TOUCH_ALPHA,
+    OPT_TOUCH_HAPTICS,
+    OPT_TOUCH_AUTOHIDE,
     OPT_TOUCH_EDIT,
+    OPT_CONTROLLER,
+    OPT_GAMEPAD_A,
+    OPT_GAMEPAD_B,
+    OPT_GAMEPAD_START,
+    OPT_GAMEPAD_Z,
+    OPT_GAMEPAD_R,
+    OPT_GAMEPAD_C_UP,
+    OPT_GAMEPAD_C_DOWN,
+    OPT_GAMEPAD_C_LEFT,
+    OPT_GAMEPAD_C_RIGHT,
+    OPT_GAMEPAD_RESET,
 #endif
     OPT_DEBUG_FEATURES,
     OPT_LEVEL_SELECT,
@@ -57,6 +74,8 @@ enum OptionId {
 
 enum OptionPage {
     OPT_PAGE_MAIN,
+    OPT_PAGE_TOUCH,
+    OPT_PAGE_CONTROLLER,
     OPT_PAGE_DEBUG,
 };
 
@@ -107,9 +126,23 @@ static const struct OptionDef sOptions[OPT_COUNT] = {
     [OPT_SHOW_FPS]   = { "SHOW FPS",    sChoicesOffOn,    2 },
     [OPT_HUD]        = { "HUD",         sChoicesOnOff,    2 },
 #ifdef TARGET_IOS
+    [OPT_TOUCH_CONTROLS] = { "TOUCH CONTROLS", NULL,              0 },
     [OPT_TOUCH_SIZE]  = { "TOUCH SIZE",  sChoicesTouchSize,  4 },
     [OPT_TOUCH_ALPHA] = { "TOUCH ALPHA", sChoicesTouchAlpha, 4 },
+    [OPT_TOUCH_HAPTICS] = { "TOUCH HAPTICS", sChoicesOffOn,      2 },
+    [OPT_TOUCH_AUTOHIDE] = { "HIDE FOR PAD",  sChoicesOffOn,      2 },
     [OPT_TOUCH_EDIT]  = { "MOVE BUTTONS", sChoicesEdit,      2 },
+    [OPT_CONTROLLER]       = { "CONTROLLER",  NULL,                0 },
+    [OPT_GAMEPAD_A]        = { "N64 A",       NULL, GAMEPAD_INPUT_COUNT },
+    [OPT_GAMEPAD_B]        = { "N64 B",       NULL, GAMEPAD_INPUT_COUNT },
+    [OPT_GAMEPAD_START]    = { "N64 START",   NULL, GAMEPAD_INPUT_COUNT },
+    [OPT_GAMEPAD_Z]        = { "N64 Z",       NULL, GAMEPAD_INPUT_COUNT },
+    [OPT_GAMEPAD_R]        = { "N64 R",       NULL, GAMEPAD_INPUT_COUNT },
+    [OPT_GAMEPAD_C_UP]     = { "C UP",        NULL, GAMEPAD_INPUT_COUNT },
+    [OPT_GAMEPAD_C_DOWN]   = { "C DOWN",      NULL, GAMEPAD_INPUT_COUNT },
+    [OPT_GAMEPAD_C_LEFT]   = { "C LEFT",      NULL, GAMEPAD_INPUT_COUNT },
+    [OPT_GAMEPAD_C_RIGHT]  = { "C RIGHT",     NULL, GAMEPAD_INPUT_COUNT },
+    [OPT_GAMEPAD_RESET]    = { "RESET MAPPING", NULL,               0 },
 #endif
     [OPT_DEBUG_FEATURES] = { "DEBUG FEATURES", NULL,          0 },
     [OPT_LEVEL_SELECT]   = { "LEVEL SELECT",   sChoicesOffOn, 2 },
@@ -123,12 +156,34 @@ static const enum OptionId sMainOptions[] = {
     OPT_SHOW_FPS,
     OPT_HUD,
 #ifdef TARGET_IOS
-    OPT_TOUCH_SIZE,
-    OPT_TOUCH_ALPHA,
-    OPT_TOUCH_EDIT,
+    OPT_TOUCH_CONTROLS,
+    OPT_CONTROLLER,
 #endif
     OPT_DEBUG_FEATURES,
 };
+
+#ifdef TARGET_IOS
+static const enum OptionId sTouchOptions[] = {
+    OPT_TOUCH_SIZE,
+    OPT_TOUCH_ALPHA,
+    OPT_TOUCH_HAPTICS,
+    OPT_TOUCH_AUTOHIDE,
+    OPT_TOUCH_EDIT,
+};
+
+static const enum OptionId sControllerOptions[] = {
+    OPT_GAMEPAD_A,
+    OPT_GAMEPAD_B,
+    OPT_GAMEPAD_START,
+    OPT_GAMEPAD_Z,
+    OPT_GAMEPAD_R,
+    OPT_GAMEPAD_C_UP,
+    OPT_GAMEPAD_C_DOWN,
+    OPT_GAMEPAD_C_LEFT,
+    OPT_GAMEPAD_C_RIGHT,
+    OPT_GAMEPAD_RESET,
+};
+#endif
 
 static const enum OptionId sDebugOptions[] = {
     OPT_LEVEL_SELECT,
@@ -141,6 +196,16 @@ static s32 sStickWasNeutral = TRUE;
 static enum OptionPage sMenuPage = OPT_PAGE_MAIN;
 
 static const enum OptionId *opt_page_options(s32 *count) {
+#ifdef TARGET_IOS
+    if (sMenuPage == OPT_PAGE_TOUCH) {
+        *count = ARRAY_COUNT(sTouchOptions);
+        return sTouchOptions;
+    }
+    if (sMenuPage == OPT_PAGE_CONTROLLER) {
+        *count = ARRAY_COUNT(sControllerOptions);
+        return sControllerOptions;
+    }
+#endif
     if (sMenuPage == OPT_PAGE_DEBUG) {
         *count = ARRAY_COUNT(sDebugOptions);
         return sDebugOptions;
@@ -149,6 +214,33 @@ static const enum OptionId *opt_page_options(s32 *count) {
     *count = ARRAY_COUNT(sMainOptions);
     return sMainOptions;
 }
+
+static s32 main_option_index(enum OptionId id) {
+    for (s32 i = 0; i < ARRAY_COUNT(sMainOptions); i++) {
+        if (sMainOptions[i] == id) {
+            return i;
+        }
+    }
+    return 0;
+}
+
+static enum OptionId page_parent_option(void) {
+#ifdef TARGET_IOS
+    if (sMenuPage == OPT_PAGE_TOUCH) {
+        return OPT_TOUCH_CONTROLS;
+    }
+    if (sMenuPage == OPT_PAGE_CONTROLLER) {
+        return OPT_CONTROLLER;
+    }
+#endif
+    return OPT_DEBUG_FEATURES;
+}
+
+#ifdef TARGET_IOS
+static s32 opt_is_gamepad_mapping(s32 id) {
+    return id >= OPT_GAMEPAD_A && id <= OPT_GAMEPAD_C_RIGHT;
+}
+#endif
 
 //------------------------------------------------------------------------------
 // Option values <-> config
@@ -172,12 +264,29 @@ static s32 opt_get(s32 id) {
         case OPT_LEVEL_SELECT: return configLevelSelect;
         case OPT_DEBUG_INFO: return configDebugInfo;
 #ifdef TARGET_IOS
+        case OPT_TOUCH_CONTROLS:
+        case OPT_CONTROLLER:
+        case OPT_GAMEPAD_RESET:
+            return 0;
         case OPT_TOUCH_SIZE:
             return nearest_choice(sTouchSizes, ARRAY_COUNT(sTouchSizes), configTouchScale);
         case OPT_TOUCH_ALPHA:
             return nearest_choice(sTouchAlphas, ARRAY_COUNT(sTouchAlphas), configTouchOpacity);
+        case OPT_TOUCH_HAPTICS:
+            return configTouchHaptics;
+        case OPT_TOUCH_AUTOHIDE:
+            return configTouchAutoHide;
         case OPT_TOUCH_EDIT:
             return touch_layout_edit_active();
+        case OPT_GAMEPAD_A:       return configGamepadA;
+        case OPT_GAMEPAD_B:       return configGamepadB;
+        case OPT_GAMEPAD_START:   return configGamepadStart;
+        case OPT_GAMEPAD_Z:       return configGamepadZ;
+        case OPT_GAMEPAD_R:       return configGamepadR;
+        case OPT_GAMEPAD_C_UP:    return configGamepadCUp;
+        case OPT_GAMEPAD_C_DOWN:  return configGamepadCDown;
+        case OPT_GAMEPAD_C_LEFT:  return configGamepadCLeft;
+        case OPT_GAMEPAD_C_RIGHT: return configGamepadCRight;
 #endif
     }
     return 0;
@@ -216,9 +325,24 @@ static void opt_set(s32 id, s32 value) {
         case OPT_TOUCH_ALPHA:
             configTouchOpacity = sTouchAlphas[value];
             break;
+        case OPT_TOUCH_HAPTICS:
+            configTouchHaptics = value;
+            break;
+        case OPT_TOUCH_AUTOHIDE:
+            configTouchAutoHide = value;
+            break;
         case OPT_TOUCH_EDIT:
             touch_layout_edit_set(value != 0);
             break;
+        case OPT_GAMEPAD_A:       configGamepadA = value; break;
+        case OPT_GAMEPAD_B:       configGamepadB = value; break;
+        case OPT_GAMEPAD_START:   configGamepadStart = value; break;
+        case OPT_GAMEPAD_Z:       configGamepadZ = value; break;
+        case OPT_GAMEPAD_R:       configGamepadR = value; break;
+        case OPT_GAMEPAD_C_UP:    configGamepadCUp = value; break;
+        case OPT_GAMEPAD_C_DOWN:  configGamepadCDown = value; break;
+        case OPT_GAMEPAD_C_LEFT:  configGamepadCLeft = value; break;
+        case OPT_GAMEPAD_C_RIGHT: configGamepadCRight = value; break;
 #endif
         case OPT_DEBUG_INFO:
             // Only the debug text. gShowProfiler is deliberately left alone:
@@ -292,6 +416,16 @@ static void opt_print_value(s16 x, s16 y, s32 id) {
     const struct OptionDef *def = &sOptions[id];
     const char *selected;
 
+#ifdef TARGET_IOS
+    if (opt_is_gamepad_mapping(id)) {
+        opt_print(x, y, controller_gamepad_input_name((unsigned int) opt_get(id)));
+        return;
+    }
+    if (id == OPT_GAMEPAD_RESET) {
+        opt_print(x, y, "PRESS A");
+        return;
+    }
+#endif
     if (def->numChoices == 0) {
         opt_print(x, y, "OPEN");
         return;
@@ -344,8 +478,21 @@ static void optmenu_draw(void) {
     gSPDisplayList(gDisplayListHead++, dl_ia_text_begin);
 
     gDPSetEnvColor(gDisplayListHead++, 255, 255, 255, 255);
-    title = sMenuPage == OPT_PAGE_DEBUG ? "DEBUG FEATURES" : "OPTIONS";
-    opt_print(sMenuPage == OPT_PAGE_DEBUG ? 92 : 124, 192, title);
+    switch (sMenuPage) {
+        case OPT_PAGE_TOUCH:
+            title = "TOUCH CONTROLS";
+            break;
+        case OPT_PAGE_CONTROLLER:
+            title = "CONTROLLER";
+            break;
+        case OPT_PAGE_DEBUG:
+            title = "DEBUG FEATURES";
+            break;
+        default:
+            title = "OPTIONS";
+            break;
+    }
+    opt_print(sMenuPage == OPT_PAGE_MAIN ? 124 : 92, 192, title);
 
     pageOptions = opt_page_options(&count);
 
@@ -370,9 +517,14 @@ static void optmenu_draw(void) {
     }
 
     gDPSetEnvColor(gDisplayListHead++, 160, 160, 160, 255);
-    if (sMenuPage == OPT_PAGE_DEBUG) {
+    if (sMenuPage != OPT_PAGE_MAIN) {
         opt_print(48, OPT_FOOTER_Y, "B BACK  R CLOSE  A CHANGE");
-    } else if (pageOptions[sMenuSel] == OPT_DEBUG_FEATURES) {
+    } else if (pageOptions[sMenuSel] == OPT_DEBUG_FEATURES
+#ifdef TARGET_IOS
+               || pageOptions[sMenuSel] == OPT_TOUCH_CONTROLS
+               || pageOptions[sMenuSel] == OPT_CONTROLLER
+#endif
+    ) {
         opt_print(64, OPT_FOOTER_Y, "R CLOSE  A OPEN");
     } else {
         opt_print(64, OPT_FOOTER_Y, "R CLOSE  A CHANGE");
@@ -416,9 +568,10 @@ s32 optmenu_update_and_render(void) {
         if (pressed & (R_TRIG | START_BUTTON)) {
             optmenu_close();
         } else if (pressed & B_BUTTON) {
-            if (sMenuPage == OPT_PAGE_DEBUG) {
+            if (sMenuPage != OPT_PAGE_MAIN) {
+                enum OptionId parent = page_parent_option();
                 sMenuPage = OPT_PAGE_MAIN;
-                sMenuSel = ARRAY_COUNT(sMainOptions) - 1;
+                sMenuSel = main_option_index(parent);
                 sStickWasNeutral = FALSE;
             } else {
                 optmenu_close();
@@ -448,6 +601,18 @@ s32 optmenu_update_and_render(void) {
                     sMenuPage = OPT_PAGE_DEBUG;
                     sMenuSel = 0;
                     sStickWasNeutral = FALSE;
+#ifdef TARGET_IOS
+                } else if (selected == OPT_TOUCH_CONTROLS) {
+                    sMenuPage = OPT_PAGE_TOUCH;
+                    sMenuSel = 0;
+                    sStickWasNeutral = FALSE;
+                } else if (selected == OPT_CONTROLLER) {
+                    sMenuPage = OPT_PAGE_CONTROLLER;
+                    sMenuSel = 0;
+                    sStickWasNeutral = FALSE;
+                } else if (selected == OPT_GAMEPAD_RESET) {
+                    controller_gamepad_reset_bindings();
+#endif
                 } else {
                     opt_cycle(selected, 1);
                 }

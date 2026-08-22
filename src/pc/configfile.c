@@ -8,6 +8,7 @@
 
 #include "configfile.h"
 #include "fs.h"
+#include "controller/controller_gamepad.h"
 
 #define ARRAY_LEN(arr) (sizeof(arr) / sizeof(arr[0]))
 
@@ -38,6 +39,8 @@ bool configShowFPS               = false;
 bool configHUD                   = true;
 bool configDebugInfo             = false;
 bool configLevelSelect           = false;
+bool configTouchHaptics          = true;
+bool configTouchAutoHide         = false;
 float configTouchScale           = 1.0f;
 float configTouchOpacity         = 1.0f;
 // Keyboard mappings (scancode values)
@@ -54,6 +57,15 @@ unsigned int configKeyStickUp    = 0x11;
 unsigned int configKeyStickDown  = 0x1F;
 unsigned int configKeyStickLeft  = 0x1E;
 unsigned int configKeyStickRight = 0x20;
+unsigned int configGamepadA      = GAMEPAD_DEFAULT_A;
+unsigned int configGamepadB      = GAMEPAD_DEFAULT_B;
+unsigned int configGamepadStart  = GAMEPAD_DEFAULT_START;
+unsigned int configGamepadR      = GAMEPAD_DEFAULT_R;
+unsigned int configGamepadZ      = GAMEPAD_DEFAULT_Z;
+unsigned int configGamepadCUp    = GAMEPAD_DEFAULT_C_UP;
+unsigned int configGamepadCDown  = GAMEPAD_DEFAULT_C_DOWN;
+unsigned int configGamepadCLeft  = GAMEPAD_DEFAULT_C_LEFT;
+unsigned int configGamepadCRight = GAMEPAD_DEFAULT_C_RIGHT;
 
 
 static const struct ConfigOption options[] = {
@@ -65,6 +77,8 @@ static const struct ConfigOption options[] = {
     {.name = "hud",            .type = CONFIG_TYPE_BOOL, .boolValue = &configHUD},
     {.name = "debug_info",     .type = CONFIG_TYPE_BOOL, .boolValue = &configDebugInfo},
     {.name = "level_select",   .type = CONFIG_TYPE_BOOL, .boolValue = &configLevelSelect},
+    {.name = "touch_haptics", .type = CONFIG_TYPE_BOOL, .boolValue = &configTouchHaptics},
+    {.name = "touch_autohide",.type = CONFIG_TYPE_BOOL, .boolValue = &configTouchAutoHide},
     {.name = "touch_scale",    .type = CONFIG_TYPE_FLOAT, .floatValue = &configTouchScale},
     {.name = "touch_opacity",  .type = CONFIG_TYPE_FLOAT, .floatValue = &configTouchOpacity},
     {.name = "key_a",          .type = CONFIG_TYPE_UINT, .uintValue = &configKeyA},
@@ -80,7 +94,35 @@ static const struct ConfigOption options[] = {
     {.name = "key_stickdown",  .type = CONFIG_TYPE_UINT, .uintValue = &configKeyStickDown},
     {.name = "key_stickleft",  .type = CONFIG_TYPE_UINT, .uintValue = &configKeyStickLeft},
     {.name = "key_stickright", .type = CONFIG_TYPE_UINT, .uintValue = &configKeyStickRight},
+    {.name = "gamepad_a",      .type = CONFIG_TYPE_UINT, .uintValue = &configGamepadA},
+    {.name = "gamepad_b",      .type = CONFIG_TYPE_UINT, .uintValue = &configGamepadB},
+    {.name = "gamepad_start",  .type = CONFIG_TYPE_UINT, .uintValue = &configGamepadStart},
+    {.name = "gamepad_r",      .type = CONFIG_TYPE_UINT, .uintValue = &configGamepadR},
+    {.name = "gamepad_z",      .type = CONFIG_TYPE_UINT, .uintValue = &configGamepadZ},
+    {.name = "gamepad_cup",    .type = CONFIG_TYPE_UINT, .uintValue = &configGamepadCUp},
+    {.name = "gamepad_cdown",  .type = CONFIG_TYPE_UINT, .uintValue = &configGamepadCDown},
+    {.name = "gamepad_cleft",  .type = CONFIG_TYPE_UINT, .uintValue = &configGamepadCLeft},
+    {.name = "gamepad_cright", .type = CONFIG_TYPE_UINT, .uintValue = &configGamepadCRight},
 };
+
+static void validate_gamepad_bindings(void) {
+    unsigned int *bindings[] = {
+        &configGamepadA, &configGamepadB, &configGamepadStart,
+        &configGamepadR, &configGamepadZ, &configGamepadCUp,
+        &configGamepadCDown, &configGamepadCLeft, &configGamepadCRight,
+    };
+    const unsigned int defaults[] = {
+        GAMEPAD_DEFAULT_A, GAMEPAD_DEFAULT_B, GAMEPAD_DEFAULT_START,
+        GAMEPAD_DEFAULT_R, GAMEPAD_DEFAULT_Z, GAMEPAD_DEFAULT_C_UP,
+        GAMEPAD_DEFAULT_C_DOWN, GAMEPAD_DEFAULT_C_LEFT, GAMEPAD_DEFAULT_C_RIGHT,
+    };
+
+    for (unsigned int i = 0; i < ARRAY_LEN(bindings); i++) {
+        if (*bindings[i] >= GAMEPAD_INPUT_COUNT) {
+            *bindings[i] = defaults[i];
+        }
+    }
+}
 
 // Reads an entire line from a file (excluding the newline character) and returns an allocated string
 // Returns NULL if no lines could be read from the file
@@ -219,6 +261,7 @@ void configfile_load(const char *filename) {
     }
 
     fclose(file);
+    validate_gamepad_bindings();
 }
 
 // Writes the config file to 'filename'

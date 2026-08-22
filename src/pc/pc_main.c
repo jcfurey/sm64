@@ -41,6 +41,10 @@
 #include "fs.h"
 #include "framerate.h"
 
+#ifdef TARGET_IOS
+#include "ios_support.h"
+#endif
+
 #define CONFIG_FILE "sm64config.txt"
 
 OSMesg gMainReceivedMesg;
@@ -240,6 +244,10 @@ void main_func(void) {
 
     configfile_load(fs_get_write_path(CONFIG_FILE));
     atexit(save_config);
+
+#ifdef TARGET_IOS
+    ios_platform_init();
+#endif
 
     gShowDebugText = configDebugInfo;
     // The profiler depends on osGetTime(), which this port stubs to zero.

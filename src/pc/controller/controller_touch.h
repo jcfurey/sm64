@@ -7,6 +7,10 @@
 
 #include "controller_api.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 extern struct ControllerAPI controller_touch;
 
 // Fed by the window backend (gfx_sdl2.c) from SDL touch events.
@@ -31,6 +35,15 @@ void touch_set_screen_geometry(int width, int height,
                                int safe_left, int safe_top,
                                int safe_right, int safe_bottom,
                                float pixels_per_point);
+
+// Returns the last drawable-space safe-area insets supplied by UIKit. The
+// renderer uses these to place its portrait 4:3 panel below the island.
+void touch_get_safe_area(int *safe_left, int *safe_top,
+                         int *safe_right, int *safe_bottom);
+
+// Installs the platform's light-impact callback. Keeping the decision in the
+// touch layer makes press/drag behavior directly testable without UIKit.
+void touch_set_haptic_callback(void (*callback)(void));
 
 // Builds the overlay geometry for the current touch state and returns it:
 // *num_verts vertices, interleaved [x, y, r, g, b, a] with x/y in
@@ -59,6 +72,10 @@ void touch_layout_save(void);
 // end of a frame, with the GL context current and the frame already
 // rendered. Width/height are the drawable size in pixels.
 void touch_render_overlay(int width, int height);
+#endif
+
+#ifdef __cplusplus
+}
 #endif
 
 #endif

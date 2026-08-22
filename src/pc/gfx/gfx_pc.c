@@ -16,7 +16,12 @@
 #include "gfx_window_manager_api.h"
 #include "gfx_rendering_api.h"
 #include "gfx_screen_config.h"
+#include "gfx_viewport.h"
 #include "../configfile.h"
+
+#ifdef TARGET_IOS
+#include "../controller/controller_touch.h"
+#endif
 
 #define SUPPORT_CHECK(x) assert(x)
 
@@ -153,9 +158,10 @@ static struct RenderingState {
 
 struct GfxDimensions gfx_current_dimensions;
 
-// Left inset in window pixels when retro mode pillarboxes the game into a
-// centered 4:3 box
+// Insets in window pixels for a fitted game panel. The rendering APIs use a
+// bottom-left origin, so y is the space below the panel.
 static uint32_t gfx_game_offset_x;
+static uint32_t gfx_game_offset_y;
 
 static bool dropped_frame;
 
@@ -1009,7 +1015,7 @@ static void gfx_calc_and_set_viewport(const Vp_t *viewport) {
     y *= RATIO_Y;
     
     rdp.viewport.x = x + gfx_game_offset_x;
-    rdp.viewport.y = y;
+    rdp.viewport.y = y + gfx_game_offset_y;
     rdp.viewport.width = width;
     rdp.viewport.height = height;
     
@@ -1079,7 +1085,7 @@ static void gfx_dp_set_scissor(uint32_t mode, uint32_t ulx, uint32_t uly, uint32
     float height = (lry - uly) / 4.0f * RATIO_Y;
     
     rdp.scissor.x = x + gfx_game_offset_x;
-    rdp.scissor.y = y;
+    rdp.scissor.y = y + gfx_game_offset_y;
     rdp.scissor.width = width;
     rdp.scissor.height = height;
     
@@ -1309,7 +1315,10 @@ static void gfx_draw_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lr
     ur->w = 1.0f;
     
     // The coordinates for texture rectangle shall bypass the viewport setting
-    struct XYWidthHeight default_viewport = {0, 0, gfx_current_dimensions.width, gfx_current_dimensions.height};
+    struct XYWidthHeight default_viewport = {
+        gfx_game_offset_x, gfx_game_offset_y,
+        gfx_current_dimensions.width, gfx_current_dimensions.height
+    };
     struct XYWidthHeight viewport_saved = rdp.viewport;
     uint32_t geometry_mode_saved = rsp.geometry_mode;
     
@@ -1723,19 +1732,38 @@ struct GfxRenderingAPI *gfx_get_current_rendering_api(void) {
 }
 
 void gfx_start_frame(void) {
+    struct GfxViewportLayout layout;
+    uint32_t drawable_width;
+    uint32_t drawable_height;
+    uint32_t safe_left = 0;
+    uint32_t safe_top = 0;
+    uint32_t safe_right = 0;
+    uint32_t safe_bottom = 0;
+
     gfx_wapi->handle_events();
-    gfx_wapi->get_dimensions(&gfx_current_dimensions.width, &gfx_current_dimensions.height);
-    if (gfx_current_dimensions.height == 0) {
-        // Avoid division by zero
-        gfx_current_dimensions.height = 1;
+    gfx_wapi->get_dimensions(&drawable_width, &drawable_height);
+#ifdef TARGET_IOS
+    {
+        int left, top, right, bottom;
+        touch_get_safe_area(&left, &top, &right, &bottom);
+        safe_left = left > 0 ? (uint32_t) left : 0;
+        safe_top = top > 0 ? (uint32_t) top : 0;
+        safe_right = right > 0 ? (uint32_t) right : 0;
+        safe_bottom = bottom > 0 ? (uint32_t) bottom : 0;
     }
-    gfx_game_offset_x = 0;
-    if (configRetroMode && gfx_current_dimensions.width * 3 > gfx_current_dimensions.height * 4) {
-        // Pillarbox the game into a centered 4:3 box
-        uint32_t logical_width = gfx_current_dimensions.height * 4 / 3;
-        gfx_game_offset_x = (gfx_current_dimensions.width - logical_width) / 2;
-        gfx_current_dimensions.width = logical_width;
-    }
+#endif
+    gfx_viewport_layout_calculate(drawable_width, drawable_height,
+                                  safe_left, safe_top, safe_right, safe_bottom,
+#ifdef TARGET_IOS
+                                  true,
+#else
+                                  false,
+#endif
+                                  configRetroMode, &layout);
+    gfx_game_offset_x = layout.x;
+    gfx_game_offset_y = layout.y;
+    gfx_current_dimensions.width = layout.width;
+    gfx_current_dimensions.height = layout.height;
     gfx_current_dimensions.aspect_ratio = (float)gfx_current_dimensions.width / (float)gfx_current_dimensions.height;
 }
 

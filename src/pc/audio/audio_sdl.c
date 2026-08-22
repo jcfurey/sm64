@@ -71,6 +71,12 @@ void audio_sdl_pause(bool pause) {
     }
 }
 
+void audio_sdl_route_changed(void) {
+    if (dev != 0) {
+        SDL_ClearQueuedAudio(dev);
+    }
+}
+
 struct AudioAPI audio_sdl = {
     audio_sdl_init,
     audio_sdl_buffered,

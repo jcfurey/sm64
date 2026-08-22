@@ -24,6 +24,7 @@
 #include <ultra64.h>
 
 #include "controller_api.h"
+#include "controller_gamepad.h"
 #include "controller_touch.h"
 #include "../configfile.h"
 #include "../fs.h"
@@ -141,6 +142,7 @@ static int safe_right;
 static int safe_bottom;
 static float screen_pixels_per_point = 1.0f;
 static enum TouchLayoutProfile touch_profile = TOUCH_LAYOUT_LANDSCAPE;
+static void (*haptic_callback)(void);
 
 static int safe_width(void) {
     return screen_width - safe_left - safe_right;
@@ -226,6 +228,25 @@ void touch_set_screen_geometry(int width, int height,
         // physical points. Cancel them rather than leaving a control held.
         touch_forget_fingers();
     }
+}
+
+void touch_get_safe_area(int *left, int *top, int *right, int *bottom) {
+    if (left != NULL) {
+        *left = safe_left;
+    }
+    if (top != NULL) {
+        *top = safe_top;
+    }
+    if (right != NULL) {
+        *right = safe_right;
+    }
+    if (bottom != NULL) {
+        *bottom = safe_bottom;
+    }
+}
+
+void touch_set_haptic_callback(void (*callback)(void)) {
+    haptic_callback = callback;
 }
 
 void touch_set_screen_size(int width, int height) {
@@ -478,6 +499,9 @@ void touch_down(long long finger_id, float x, float y) {
         if (hit_button(&current_buttons()[i], x, y)) {
             f->role = ROLE_BUTTON;
             f->button = i;
+            if (configTouchHaptics && haptic_callback != NULL) {
+                haptic_callback();
+            }
             return;
         }
     }
@@ -698,6 +722,12 @@ static void overlay_build(void) {
     int dragged = layout_dragged_button();
 
     overlay_num_verts = 0;
+
+    if (configTouchAutoHide && controller_gamepad_is_connected() && !editing) {
+        // Keep touch hit-testing live so the player can still reach a button,
+        // but remove visual clutter while a hardware controller is attached.
+        return;
+    }
 
     if (!(opacity > 0.0f)) {
         // Hidden (or a NaN from a hand-edited config). Input still works;

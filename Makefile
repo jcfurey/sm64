@@ -401,6 +401,11 @@ ifneq ($(TARGET_IOS),1)
 endif
 ifeq ($(ENABLE_METAL),1)
   MM_FILES        := $(foreach dir,$(SRC_DIRS),$(wildcard $(dir)/*.mm))
+  ifneq ($(TARGET_IOS),1)
+    MM_FILES      := $(filter-out src/pc/ios_support.mm,$(MM_FILES))
+  endif
+else ifeq ($(TARGET_IOS),1)
+  MM_FILES        := src/pc/ios_support.mm
 else
   MM_FILES        :=
 endif
@@ -656,11 +661,8 @@ ifeq ($(TARGET_IOS),1)
     -framework UIKit -framework Foundation -framework CoreGraphics -framework QuartzCore \
     -framework AudioToolbox -framework CoreAudio -framework AVFoundation \
     -framework GameController -framework CoreMotion -framework CoreHaptics \
-    -framework CoreBluetooth -framework CoreVideo -framework Metal -framework OpenGLES
-  ifeq ($(ENABLE_METAL),1)
-    # Objective-C++ runtime support for the Metal backend
-    PLATFORM_LDFLAGS += -lc++
-  endif
+    -framework CoreBluetooth -framework CoreVideo -framework Metal -framework OpenGLES \
+    -lc++
 endif
 
 PLATFORM_CFLAGS += -DNO_SEGMENTED_MEMORY -DUSE_SYSTEM_MALLOC

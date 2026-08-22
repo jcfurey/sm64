@@ -11,9 +11,15 @@
 #include <string.h>
 
 #include "controller/controller_touch.h"
+#include "controller/controller_gamepad.h"
 #include "configfile.h"
 
 static int failures;
+static int haptic_count;
+
+static void count_haptic(void) {
+    haptic_count++;
+}
 
 #define CHECK(cond, what)                                                     \
     do {                                                                      \
@@ -144,14 +150,30 @@ int main(void) {
     printf("adaptive on-screen control layout\n");
     configTouchScale = 1.0f;
     configTouchOpacity = 1.0f;
+    configTouchHaptics = true;
+    configTouchAutoHide = true;
+    controller_gamepad_set_connected(false);
 
     use_geometry(&iphone_landscape);
     controller_touch.init();
+    touch_set_haptic_callback(count_haptic);
     CHECK(press_reads_a(safe_x(landscape_a_x), safe_y(landscape_a_y)),
           "the landscape A button responds where it is drawn");
+    CHECK(haptic_count == 1, "a button press fires one light haptic");
     CHECK(!press_reads_a(safe_x(0.2f), safe_y(0.5f)),
           "empty landscape space is not the A button");
     CHECK(overlay_fits_safe_area(), "landscape controls avoid the island and home indicator");
+
+    controller_gamepad_set_connected(true);
+    {
+        int count = -1;
+        touch_overlay_build(geometry.width, geometry.height, &count);
+        CHECK(count == 0, "a connected controller automatically hides the overlay");
+    }
+    touch_layout_edit_set(true);
+    CHECK(overlay_fits_safe_area(), "layout editing reveals controls even with a controller");
+    touch_layout_edit_set(false);
+    controller_gamepad_set_connected(false);
 
     // Size setting: a larger multiplier must widen the hit area in physical
     // pixels even though the authored coordinates are safe-area normalized.
@@ -180,8 +202,11 @@ int main(void) {
     {
         float landscape_custom_x = safe_x(0.30f);
         float landscape_custom_y = safe_y(0.40f);
+        int haptics_before_drag = haptic_count;
         drag_a(safe_x(landscape_a_x), safe_y(landscape_a_y),
                landscape_custom_x, landscape_custom_y);
+        CHECK(haptic_count == haptics_before_drag,
+              "dragging a layout button does not fire haptics");
         CHECK(!touch_layout_edit_active(), "tapping empty space leaves edit mode");
         CHECK(press_reads_a(landscape_custom_x, landscape_custom_y),
               "the landscape button moved to its edited position");
