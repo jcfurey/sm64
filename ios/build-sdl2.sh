@@ -44,6 +44,22 @@ if [ ! -d "SDL2-$SDL2_VERSION" ]; then
     tar xzf "$TARBALL"
 fi
 
+SCENE_PATCH="$SCRIPT_DIR/patches/SDL2-$SDL2_VERSION-uiscene.patch"
+if [ ! -f "$SCENE_PATCH" ]; then
+    echo "No UIScene lifecycle patch is available for SDL2 $SDL2_VERSION" >&2
+    exit 1
+fi
+
+if patch --dry-run -s -N -d "SDL2-$SDL2_VERSION" -p1 < "$SCENE_PATCH" >/dev/null 2>&1; then
+    echo "Applying SDL2 UIScene lifecycle patch..."
+    patch -s -N -d "SDL2-$SDL2_VERSION" -p1 < "$SCENE_PATCH"
+elif patch --dry-run -s -R -d "SDL2-$SDL2_VERSION" -p1 < "$SCENE_PATCH" >/dev/null 2>&1; then
+    echo "SDL2 UIScene lifecycle patch is already applied."
+else
+    echo "SDL2 UIScene lifecycle patch does not apply cleanly" >&2
+    exit 1
+fi
+
 echo "Building SDL2 static library for $IOS_SDK..."
 xcodebuild build \
     -project "SDL2-$SDL2_VERSION/Xcode/SDL/SDL.xcodeproj" \

@@ -2,7 +2,8 @@
 
 This directory contains the iOS packaging for the port. The build produces a
 native arm64 app (`.app` bundle and sideloadable `.ipa`) with touch controls,
-for the `us` and `jp` versions of the game.
+for the `us` and `jp` versions of the game. iPhone and iPad can run in portrait,
+upside-down portrait where UIKit permits it, or either landscape direction.
 
 Rendering uses **Metal** by default — Apple's modern graphics API — through a
 backend that compiles a Metal pipeline for each N64 color-combiner mode at
@@ -23,39 +24,70 @@ yourself and do not distribute it.**
 - An original Super Mario 64 ROM for each version you want to build
   (`us` and/or `jp`)
 
-## Building
+## Building and running with Xcode
 
-1. Build SDL2 as a static library for iOS (one-time step):
+1. Build both SDL2 slices (one-time setup):
 
    ```
    ./ios/build-sdl2.sh
+   IOS_SDK=iphonesimulator ./ios/build-sdl2.sh
    ```
+
+   The build script automatically applies the repository's SDL2 `UIScene`
+   lifecycle patch before compiling each slice. Rebuild both slices after
+   pulling changes to that patch.
 
 2. Place your ROM(s) in the repository root, named `baserom.us.z64` /
    `baserom.jp.z64`, for asset extraction.
 
-3. Build the app (use Homebrew's `gmake`; the make shipped with macOS is too
-   old):
+3. Open the project:
 
    ```
-   gmake TARGET_IOS=1 VERSION=us -j$(sysctl -n hw.ncpu)
-   gmake TARGET_IOS=1 VERSION=jp -j$(sysctl -n hw.ncpu)
+   open ios/SM64.xcodeproj
    ```
 
-   Outputs land in `build/<version>_ios/`:
-   - `SM64-<version>.app` — the app bundle
-   - `sm64.<version>.ipa` — the same bundle packaged for sideloading
+4. Select the **SM64 US** or **SM64 JP** scheme, choose an iOS Simulator or
+   connected device, and press **Run**. The scheme reports a clear error if its
+   matching ROM or SDL2 slice is missing.
 
-   To verify the generated plist and every bundled icon without launching the
-   app, run:
+For a physical device, select the corresponding target, open **Signing &
+Capabilities**, and choose your development team. Xcode then manages the app's
+development signature and provisioning. Simulator builds do not need a team.
 
-   ```
-   gmake TARGET_IOS=1 VERSION=us check-ios-bundle
-   ```
+The Xcode project is a native app wrapper around the existing build: GNU Make
+still compiles and links the game executable, while Xcode creates the final app
+bundle, selects the SDK, installs it, and launches it. The user-defined
+`SM64_ENABLE_OPENGL` build setting can be changed to `YES` to use the GLES
+fallback. The wrapper keeps the decompilation-wide legacy warning sweep out of
+Xcode's Issue navigator; command-line builds retain that full warning audit,
+while real Xcode compile errors use absolute, clickable source paths.
+The generated app adopts UIKit's single-scene lifecycle on iOS 13 and newer;
+SDL startup is deferred until the window scene is connected.
 
-   The two versions use different bundle identifiers
-   (`com.sm64port.us` / `com.sm64port.jp`), so both can be installed at the
-   same time.
+## Building from the command line
+
+After building the SDL2 slice for the desired SDK and adding the ROM, invoke
+Homebrew's `gmake` (the make shipped with macOS is too old):
+
+```
+gmake TARGET_IOS=1 VERSION=us -j$(sysctl -n hw.ncpu)
+gmake TARGET_IOS=1 VERSION=jp -j$(sysctl -n hw.ncpu)
+```
+
+Outputs land in `build/<version>_ios/`:
+
+- `SM64-<version>.app` — the app bundle
+- `sm64.<version>.ipa` — the same bundle packaged for sideloading
+
+To verify the generated plist and every bundled icon without launching the
+app, run:
+
+```
+gmake TARGET_IOS=1 VERSION=us check-ios-bundle
+```
+
+The two versions use different bundle identifiers (`com.sm64port.us` /
+`com.sm64port.jp`), so both can be installed at the same time.
 
 ## Installing on a device
 
@@ -94,13 +126,23 @@ Touch controls are drawn as a semi-transparent overlay:
 Bluetooth game controllers (Xbox, PlayStation, MFi) are supported through
 SDL's GameController API and can be used instead of the touch controls.
 
+The overlay follows the live UIKit safe area, so controls stay clear of the
+Dynamic Island/notch, rounded corners, and home indicator as the device rotates.
+It uses separate portrait and landscape arrangements whose positions adapt to
+the available rectangle rather than matching a hard-coded list of device
+models. Control size is calculated in UIKit points and capped on large tablets,
+so the same build remains usable from compact iPhones through 13-inch iPads.
+Modern iPhones without a Home button may ignore upside-down portrait even
+though the app declares it; that decision belongs to UIKit.
+
 The layout is not fixed. **Touch Size** and **Touch Alpha** in the options
 menu scale the controls and fade them (Hidden turns the overlay off
 entirely while leaving touch input working, for when a controller is
 attached), and **Move Buttons** starts a drag-to-place mode: drag any
 button where you want it, then tap an empty spot to finish. The result is
 saved to `sm64_touch_layout.txt` next to your save file — delete that file
-to go back to the default arrangement.
+to go back to the default arrangement. Portrait and landscape edits are saved
+independently; an older landscape-only layout file is imported automatically.
 
 ## In-game options menu
 
@@ -116,6 +158,12 @@ in the app's config file:
   selected — a cap that does not divide the display's refresh rate is
   rounded down so pacing stays even, and a device that cannot sustain the
   rate is stepped down automatically (see below).
+  iPhone builds opt into Core Animation's full ProMotion range; the system
+  can still lower the physical display rate for Low Power Mode, thermal
+  pressure, or accessibility settings. Xcode 26.5's iPhone 17 Pro simulator
+  reports a 60 Hz maximum through UIKit, so Auto resolves to 60 there despite
+  the simulated model name; verify 120 Hz on physical ProMotion hardware.
+  The in-game FPS counter measures frames the game actually rendered.
 - **View** — Normal, Wireframe (Metal renderer), or Collision, which draws
   the collision mesh around Mario as translucent triangles: floors green,
   ceilings red, walls blue.

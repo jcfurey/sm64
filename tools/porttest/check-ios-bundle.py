@@ -34,6 +34,13 @@ REQUIRED_DEBUG_SCREEN_TEXT = (
     "DEBUG INFO",
 )
 
+ALL_ORIENTATIONS = {
+    "UIInterfaceOrientationLandscapeLeft",
+    "UIInterfaceOrientationLandscapeRight",
+    "UIInterfaceOrientationPortrait",
+    "UIInterfaceOrientationPortraitUpsideDown",
+}
+
 
 def fail(message: str) -> None:
     raise SystemExit(f"iOS bundle check failed: {message}")
@@ -108,6 +115,38 @@ def check_debug_screen(bundle: Path, info: dict[str, object]) -> None:
             fail(f"user-facing debug screen text {text!r} is absent from the executable")
 
 
+def check_scene_manifest(info: dict[str, object]) -> None:
+    manifest = info.get("UIApplicationSceneManifest")
+    if not isinstance(manifest, dict):
+        fail("UIApplicationSceneManifest is missing or is not a dictionary")
+    if manifest.get("UIApplicationSupportsMultipleScenes") is not False:
+        fail("UIApplicationSupportsMultipleScenes must be the boolean false")
+
+    configurations = manifest.get("UISceneConfigurations")
+    if not isinstance(configurations, dict):
+        fail("UIApplicationSceneManifest.UISceneConfigurations is missing")
+    application_role = configurations.get("UIWindowSceneSessionRoleApplication")
+    if not isinstance(application_role, list):
+        fail("the application scene-role configuration is missing")
+
+    expected = {
+        "UISceneConfigurationName": "SDLSceneConfiguration",
+        "UISceneDelegateClassName": "SDLUIKitSceneDelegate",
+    }
+    if not any(isinstance(item, dict) and all(item.get(key) == value for key, value in expected.items())
+               for item in application_role):
+        fail("the SDL UIKit scene configuration is missing or malformed")
+
+
+def check_orientations(info: dict[str, object]) -> None:
+    for key in ("UISupportedInterfaceOrientations", "UISupportedInterfaceOrientations~ipad"):
+        values = info.get(key)
+        if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
+            fail(f"{key} is missing or is not an array of strings")
+        if set(values) != ALL_ORIENTATIONS:
+            fail(f"{key} must declare all four interface orientations")
+
+
 def main() -> None:
     if len(sys.argv) != 2:
         fail(f"usage: {Path(sys.argv[0]).name} path/to/App.app")
@@ -121,6 +160,7 @@ def main() -> None:
         info = plistlib.load(plist_file)
 
     for key in (
+        "CADisableMinimumFrameDurationOnPhone",
         "UIApplicationSupportsIndirectInputEvents",
         "UIFileSharingEnabled",
         "LSSupportsOpeningDocumentsInPlace",
@@ -128,12 +168,20 @@ def main() -> None:
         if info.get(key) is not True:
             fail(f"{key} must be the boolean true")
 
+    if info.get("UIDeviceFamily") != [1, 2]:
+        fail("UIDeviceFamily must support both iPhone (1) and iPad (2)")
+
     check_icon_set(bundle, info, "CFBundleIcons", IPHONE_ICONS)
     check_icon_set(bundle, info, "CFBundleIcons~ipad", IPAD_ICONS)
+    check_scene_manifest(info)
+    check_orientations(info)
     check_debug_screen(bundle, info)
 
     unique_icons = len(set(IPHONE_ICONS) | set(IPAD_ICONS))
-    print(f"iOS bundle: 3 metadata flags, {unique_icons} icons, and Debug Features screen passed")
+    print(
+        f"iOS bundle: UIScene lifecycle, ProMotion, all orientations, 3 metadata flags, iPhone/iPad support, "
+        f"{unique_icons} icons, and Debug Features screen passed"
+    )
 
 
 if __name__ == "__main__":

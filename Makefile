@@ -706,8 +706,13 @@ else
   MARCH_CFLAGS := -march=native
 endif
 
-CC_CHECK := $(CC) -fsyntax-only -fsigned-char -Wall -Wextra -Wno-format-security -D_LANGUAGE_C $(DEF_INC_CFLAGS) $(PLATFORM_CFLAGS) $(GFX_CFLAGS)
-CFLAGS := $(OPT_FLAGS) -D_LANGUAGE_C $(DEF_INC_CFLAGS) $(PLATFORM_CFLAGS) $(GFX_CFLAGS) -fno-strict-aliasing -fwrapv $(MARCH_CFLAGS)
+# The port runs a broad host-compiler syntax pass before the real compile.
+# Wrappers may quiet its historical decompilation warnings without changing
+# the default command-line audit, and may request a diagnostic path format.
+PORT_SYNTAX_WARNINGS ?= -Wall -Wextra
+PORT_DIAGNOSTIC_FLAGS ?=
+CC_CHECK := $(CC) -fsyntax-only -fsigned-char $(PORT_SYNTAX_WARNINGS) -Wno-format-security -D_LANGUAGE_C $(DEF_INC_CFLAGS) $(PLATFORM_CFLAGS) $(GFX_CFLAGS) $(PORT_DIAGNOSTIC_FLAGS)
+CFLAGS := $(OPT_FLAGS) -D_LANGUAGE_C $(DEF_INC_CFLAGS) $(PLATFORM_CFLAGS) $(GFX_CFLAGS) -fno-strict-aliasing -fwrapv $(MARCH_CFLAGS) $(PORT_DIAGNOSTIC_FLAGS)
 
 ifeq ($(PEDANTIC),1)
   $(BUILD_DIR)/src/pc/%.o: CFLAGS += -Wall -Wextra -Wpedantic
@@ -847,9 +852,12 @@ $(IOS_APP): $(EXE) ios/Info.plist.in $(IOS_ICON_FILES)
 	@$(PRINT) "$(GREEN)Packaging app bundle: $(BLUE)$@ $(NO_COL)\n"
 	$(V)$(RM) -r $@
 	$(V)mkdir -p $@
-	$(V)sed -e 's|@BUNDLE_ID@|$(IOS_BUNDLE_ID)|g' \
-	    -e 's|@DISPLAY_NAME@|$(IOS_DISPLAY_NAME)|g' \
-	    -e 's|@MIN_VERSION@|$(IOS_MIN_VERSION)|g' ios/Info.plist.in > $@/Info.plist
+	$(V)sed -e 's|$$(PRODUCT_BUNDLE_IDENTIFIER)|$(IOS_BUNDLE_ID)|g' \
+	    -e 's|$$(SM64_DISPLAY_NAME)|$(IOS_DISPLAY_NAME)|g' \
+	    -e 's|$$(IPHONEOS_DEPLOYMENT_TARGET)|$(IOS_MIN_VERSION)|g' ios/Info.plist.in > $@/Info.plist
+	$(V)/usr/libexec/PlistBuddy -c 'Add :UIDeviceFamily array' \
+	    -c 'Add :UIDeviceFamily:0 integer 1' \
+	    -c 'Add :UIDeviceFamily:1 integer 2' $@/Info.plist
 	$(V)cp $(EXE) $@/sm64
 	$(V)cp $(IOS_ICON_FILES) $@/
 	$(V)codesign --force --sign "$(IOS_SIGN_IDENTITY)" $@

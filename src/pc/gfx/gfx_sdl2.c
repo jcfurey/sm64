@@ -37,6 +37,14 @@
 
 #ifdef TARGET_IOS
 #include "../controller/controller_touch.h"
+
+// Project extension carried by ios/patches/SDL2-2.30.7-uiscene.patch.
+// Values are fractions of the UIKit view, which we map onto the current
+// native-resolution drawable below.
+extern int SDL_iPhoneGetWindowSafeAreaInsets(SDL_Window *window,
+                                             float *left, float *top,
+                                             float *right, float *bottom,
+                                             float *view_width, float *view_height);
 #endif
 
 #ifdef HIGH_FPS_PC
@@ -209,7 +217,51 @@ void *gfx_sdl_get_metal_layer(void) {
 }
 #endif
 
+#ifdef TARGET_IOS
+static void update_touch_geometry(void) {
+    int width = 0;
+    int height = 0;
+    float left = 0.0f;
+    float top = 0.0f;
+    float right = 0.0f;
+    float bottom = 0.0f;
+    float view_width = 0.0f;
+    float view_height = 0.0f;
+    float pixels_per_point = 1.0f;
+
+#ifdef ENABLE_METAL
+    SDL_Metal_GetDrawableSize(wnd, &width, &height);
+#else
+    SDL_GL_GetDrawableSize(wnd, &width, &height);
+#endif
+    if (width <= 0 || height <= 0) {
+        return;
+    }
+    if (SDL_iPhoneGetWindowSafeAreaInsets(wnd, &left, &top, &right, &bottom,
+                                          &view_width, &view_height) != 0) {
+        left = top = right = bottom = 0.0f;
+    }
+    if (view_width > 0.0f && view_height > 0.0f) {
+        float scale_x = (float) width / view_width;
+        float scale_y = (float) height / view_height;
+        pixels_per_point = (scale_x + scale_y) * 0.5f;
+    }
+    window_width = (unsigned int) width;
+    window_height = (unsigned int) height;
+    touch_set_screen_geometry(width, height,
+                              (int) (left * (float) width + 0.5f),
+                              (int) (top * (float) height + 0.5f),
+                              (int) (right * (float) width + 0.5f),
+                              (int) (bottom * (float) height + 0.5f),
+                              pixels_per_point);
+}
+#endif
+
 static void gfx_sdl_init(const char *game_name, bool start_in_fullscreen) {
+#ifdef TARGET_IOS
+    SDL_SetHint(SDL_HINT_ORIENTATIONS,
+                "LandscapeLeft LandscapeRight Portrait PortraitUpsideDown");
+#endif
     SDL_Init(SDL_INIT_VIDEO);
 
 #ifdef ENABLE_OPENGL
@@ -239,7 +291,7 @@ static void gfx_sdl_init(const char *game_name, bool start_in_fullscreen) {
     window_width = drawable_w;
     window_height = drawable_h;
 #ifdef TARGET_IOS
-    touch_set_screen_size(drawable_w, drawable_h);
+    update_touch_geometry();
 #endif
 
 #ifdef HIGH_FPS_PC
@@ -274,7 +326,7 @@ static void gfx_sdl_init(const char *game_name, bool start_in_fullscreen) {
     SDL_GL_GetDrawableSize(wnd, &drawable_w, &drawable_h);
     window_width = drawable_w;
     window_height = drawable_h;
-    touch_set_screen_size(drawable_w, drawable_h);
+    update_touch_geometry();
 
     // Displays refresh at a multiple of the game's 30 fps; derive the swap
     // interval from the refresh rate instead of measuring it
@@ -432,21 +484,9 @@ static void wait_for_foreground(void) {
     // stay down forever, holding its button
     touch_forget_fingers();
 
-    // A rotation while suspended raises SIZE_CHANGED into the same discarded
-    // stream; re-read the drawable rather than trusting the old size
-    {
-        int w = 0, h = 0;
-#ifdef ENABLE_METAL
-        SDL_Metal_GetDrawableSize(wnd, &w, &h);
-#else
-        SDL_GL_GetDrawableSize(wnd, &w, &h);
-#endif
-        if (w > 0 && h > 0) {
-            window_width = w;
-            window_height = h;
-            touch_set_screen_size(w, h);
-        }
-    }
+    // A rotation while suspended raises resize events into the discarded
+    // stream; re-read the drawable and UIKit safe area instead.
+    update_touch_geometry();
 #endif
 #ifdef HIGH_FPS_PC
     // Frame timings measured either side of a suspension say nothing about
@@ -457,6 +497,11 @@ static void wait_for_foreground(void) {
 
 static void gfx_sdl_handle_events(void) {
     SDL_Event event;
+#ifdef TARGET_IOS
+    // safeAreaInsetsDidChange can occur without a drawable-size event. The
+    // query is inexpensive and the touch layer ignores unchanged geometry.
+    update_touch_geometry();
+#endif
     while (SDL_PollEvent(&event)) {
         switch (event.type) {
             case SDL_APP_WILLENTERBACKGROUND:
@@ -497,17 +542,15 @@ static void gfx_sdl_handle_events(void) {
                 break;
 #endif
             case SDL_WINDOWEVENT:
-                if (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
-#if defined(ENABLE_METAL)
+                if (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED
+                    || event.window.event == SDL_WINDOWEVENT_RESIZED) {
+#ifdef TARGET_IOS
+                    update_touch_geometry();
+#elif defined(ENABLE_METAL)
                     SDL_Metal_GetDrawableSize(wnd, (int *) &window_width, (int *) &window_height);
-#elif defined(TARGET_IOS)
-                    SDL_GL_GetDrawableSize(wnd, (int *) &window_width, (int *) &window_height);
 #else
                     window_width = event.window.data1;
                     window_height = event.window.data2;
-#endif
-#ifdef TARGET_IOS
-                    touch_set_screen_size(window_width, window_height);
 #endif
                 }
                 break;

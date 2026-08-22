@@ -41,6 +41,11 @@
 *.swp
 .vscode/*
 
+# Xcode per-user state
+*.xcuserstate
+xcuserdata/
+/ios/com.apple.DeveloperTools/
+
 # General project-specific ignores
 **/__pycache__/*
 doxygen/doxygen/*

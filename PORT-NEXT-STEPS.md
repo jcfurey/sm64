@@ -25,6 +25,17 @@ The follow-up work after this handoff completed Lane 2: both iOS bundles now
 carry a full opaque icon set, indirect input is declared, and saves live in the
 file-sharing-visible `Documents` directory. An actual simulator launch showed
 the old config migrate there and no longer emitted SDL's indirect-input warning.
+`ios/SM64.xcodeproj` now provides shared US and JP schemes as well, using the
+existing Makefile for compilation while Xcode handles SDK selection, bundling,
+automatic signing, installation, and launch.
+
+The app now declares all four interface orientations and the SDL UIKit patch
+reports the window's live safe-area geometry to the touch layer. Independent
+portrait and landscape layouts remain inside the usable rectangle across
+notched iPhones and iPads, cancel stale fingers on rotation, preserve old
+landscape-only layout files, and cap physical control size on large tablets.
+`touch_layout_test` covers compact phone, Dynamic Island phone, and 13-inch
+iPad geometries in both aspect directions.
 
 **Not** verified: anything on physical hardware — no device was connected. The
 `jp` build has never been run here either; it needs `baserom.jp.z64`.
@@ -67,11 +78,11 @@ the missing-home fallback.
 
 `gmake TARGET_IOS=1 [IOS_SDK=iphonesimulator] check-ios-bundle` builds the app
 and runs `tools/porttest/check-ios-bundle.py` against the result. It checks the
-three boolean values plus existence, dimensions and opaque RGB format for every
-declared icon. It also verifies the packaged executable contains the dedicated
-Debug Features screen and its two user-facing controls. This remains separate
-from portable `make -C tools/porttest check`, which still needs neither a ROM
-nor Xcode.
+three boolean values, four declared orientations, plus existence, dimensions
+and opaque RGB format for every declared icon. It also verifies the packaged
+executable contains the dedicated Debug Features screen and its two user-facing
+controls. This remains separate from portable `make -C tools/porttest check`,
+which still needs neither a ROM nor Xcode.
 
 The same change replaced `.gitignore`'s per-executable porttest list with
 `/tools/porttest/*_test`, so new test binaries no longer become tracked files.
@@ -171,10 +182,10 @@ audio backend.
   be a small, strict improvement; it was left out of `a081e14` to keep that
   commit a pure move.
 
-- **The simulator runs the app sideways.** The app is landscape-only
-  (`UISupportedInterfaceOrientations`) and the simulator boots portrait.
-  Rotating it is `Cmd+←`, done by hand — driving the Simulator UI from a script
-  needs Accessibility permission for the terminal.
+- **Simulator rotation automation still needs Accessibility permission.** The
+  app itself supports portrait and landscape and relays SDL resize events, but
+  `simctl` has no public rotation command in the installed Xcode. Simulator's
+  `Cmd+←` / `Cmd+→` shortcuts remain the direct manual check.
 
 ---
 

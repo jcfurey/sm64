@@ -14,15 +14,19 @@ versions, rendering through **Metal** (with an OpenGL ES 2.0 fallback) with
 touch controls, Bluetooth controller support, frame interpolation up to
 120 fps on ProMotion displays, and an in-game options menu (frame rate,
 wireframe/collision view modes, a retro 4:3 240p mode, FPS counter and a
-dedicated Debug Features screen). It requires a macOS host with Xcode:
+dedicated Debug Features screen). The touch UI supports portrait and both
+landscape directions on iPhone and iPad and stays inside UIKit's live safe
+area. It requires a macOS host with Xcode:
 
 ```
-./ios/build-sdl2.sh                 # one-time: build static SDL2 for iOS
-gmake TARGET_IOS=1 VERSION=us -j8   # or VERSION=jp
+./ios/build-sdl2.sh                              # device SDL2 slice
+IOS_SDK=iphonesimulator ./ios/build-sdl2.sh      # simulator SDL2 slice
+open ios/SM64.xcodeproj                          # select a scheme and press Run
 ```
 
-See [ios/README.md](ios/README.md) for full instructions, including how to
-install the resulting app on a device.
+The GNU Make command-line build remains available. See
+[ios/README.md](ios/README.md) for full Xcode and command-line instructions,
+including how to install the resulting app on a device.
 
 ## Building native executables
 

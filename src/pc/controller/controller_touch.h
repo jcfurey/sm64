@@ -16,8 +16,21 @@ void touch_motion(long long finger_id, float x, float y);
 void touch_up(long long finger_id);
 
 // Tells the touch layer the drawable size in pixels, so hit testing is
-// aspect-correct before the first overlay frame is drawn
+// aspect-correct before the first overlay frame is drawn. This legacy form
+// uses the whole drawable; iOS normally calls touch_set_screen_geometry()
+// below with UIKit's live safe-area insets.
 void touch_set_screen_size(int width, int height);
+
+// Updates the drawable and the unsafe margins occupied by a notch, Dynamic
+// Island, rounded corners, or the home indicator. Insets are drawable pixels.
+// The layout is authored within the remaining rectangle and automatically
+// selects a portrait or landscape profile from its geometry. pixels_per_point
+// lets large tablets cap controls at a comfortable physical size rather than
+// scaling them in direct proportion to the display.
+void touch_set_screen_geometry(int width, int height,
+                               int safe_left, int safe_top,
+                               int safe_right, int safe_bottom,
+                               float pixels_per_point);
 
 // Builds the overlay geometry for the current touch state and returns it:
 // *num_verts vertices, interleaved [x, y, r, g, b, a] with x/y in

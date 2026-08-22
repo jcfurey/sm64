@@ -30,9 +30,11 @@
 
 #define MAX_FINGERS 10
 
-// Full stick deflection distance, as a fraction of screen height
+// Full stick deflection distance, as a fraction of the safe area's shorter
+// side. Using the shorter side keeps controls at a useful physical scale in
+// both portrait and landscape.
 #define STICK_RANGE 0.12f
-// Fingers landing left of this (and below the start button) control the stick
+// Fingers landing in this part of the safe area control the stick.
 #define STICK_ZONE_X 0.45f
 #define STICK_ZONE_Y 0.18f
 
@@ -50,29 +52,53 @@ enum TouchButtonId {
 };
 
 struct TouchButton {
-    float cx; // center, fraction of screen width
-    float cy; // center, fraction of screen height
-    float r;  // radius, fraction of screen height
+    float cx; // center, fraction of safe-area width
+    float cy; // center, fraction of safe-area height
+    float r;  // radius, fraction of the safe area's shorter side
     uint16_t mask;
     float color[4];
 };
 
-// Colors follow the N64 pad: A blue, B green, C yellow, Start red.
-// These are the authored positions; the live layout below starts as a copy
-// and can be moved by the player, so resetting is just a memcpy.
-static const struct TouchButton touch_button_defaults[TOUCH_BUTTON_COUNT] = {
-    [TOUCH_A]       = { 0.905f, 0.720f, 0.085f, A_BUTTON,     { 0.25f, 0.35f, 0.95f, 1.0f } },
-    [TOUCH_B]       = { 0.780f, 0.860f, 0.065f, B_BUTTON,     { 0.20f, 0.80f, 0.30f, 1.0f } },
-    [TOUCH_Z]       = { 0.660f, 0.700f, 0.055f, Z_TRIG,       { 0.60f, 0.60f, 0.65f, 1.0f } },
-    [TOUCH_R]       = { 0.945f, 0.095f, 0.050f, R_TRIG,       { 0.60f, 0.60f, 0.65f, 1.0f } },
-    [TOUCH_START]   = { 0.500f, 0.085f, 0.050f, START_BUTTON, { 0.90f, 0.25f, 0.25f, 1.0f } },
-    [TOUCH_C_UP]    = { 0.860f, 0.330f, 0.042f, U_CBUTTONS,   { 0.95f, 0.80f, 0.15f, 1.0f } },
-    [TOUCH_C_DOWN]  = { 0.860f, 0.510f, 0.042f, D_CBUTTONS,   { 0.95f, 0.80f, 0.15f, 1.0f } },
-    [TOUCH_C_LEFT]  = { 0.772f, 0.420f, 0.042f, L_CBUTTONS,   { 0.95f, 0.80f, 0.15f, 1.0f } },
-    [TOUCH_C_RIGHT] = { 0.948f, 0.420f, 0.042f, R_CBUTTONS,   { 0.95f, 0.80f, 0.15f, 1.0f } },
+enum TouchLayoutProfile {
+    TOUCH_LAYOUT_LANDSCAPE,
+    TOUCH_LAYOUT_PORTRAIT,
+    TOUCH_LAYOUT_PROFILE_COUNT
 };
 
-static struct TouchButton touch_buttons[TOUCH_BUTTON_COUNT];
+// Colors follow the N64 pad: A blue, B green, C yellow, Start red.
+// Positions are normalized within UIKit's safe area, not a particular device
+// model. That makes one pair of layouts cover every iPhone and iPad size.
+static const struct TouchButton touch_button_defaults[TOUCH_LAYOUT_PROFILE_COUNT][TOUCH_BUTTON_COUNT] = {
+    [TOUCH_LAYOUT_LANDSCAPE] = {
+        [TOUCH_A]       = { 0.900f, 0.720f, 0.085f, A_BUTTON,     { 0.25f, 0.35f, 0.95f, 1.0f } },
+        [TOUCH_B]       = { 0.775f, 0.860f, 0.065f, B_BUTTON,     { 0.20f, 0.80f, 0.30f, 1.0f } },
+        [TOUCH_Z]       = { 0.655f, 0.700f, 0.055f, Z_TRIG,       { 0.60f, 0.60f, 0.65f, 1.0f } },
+        [TOUCH_R]       = { 0.940f, 0.095f, 0.050f, R_TRIG,       { 0.60f, 0.60f, 0.65f, 1.0f } },
+        [TOUCH_START]   = { 0.500f, 0.085f, 0.050f, START_BUTTON, { 0.90f, 0.25f, 0.25f, 1.0f } },
+        [TOUCH_C_UP]    = { 0.855f, 0.330f, 0.042f, U_CBUTTONS,   { 0.95f, 0.80f, 0.15f, 1.0f } },
+        [TOUCH_C_DOWN]  = { 0.855f, 0.510f, 0.042f, D_CBUTTONS,   { 0.95f, 0.80f, 0.15f, 1.0f } },
+        [TOUCH_C_LEFT]  = { 0.767f, 0.420f, 0.042f, L_CBUTTONS,   { 0.95f, 0.80f, 0.15f, 1.0f } },
+        [TOUCH_C_RIGHT] = { 0.943f, 0.420f, 0.042f, R_CBUTTONS,   { 0.95f, 0.80f, 0.15f, 1.0f } },
+    },
+    [TOUCH_LAYOUT_PORTRAIT] = {
+        [TOUCH_A]       = { 0.830f, 0.820f, 0.085f, A_BUTTON,     { 0.25f, 0.35f, 0.95f, 1.0f } },
+        [TOUCH_B]       = { 0.670f, 0.900f, 0.065f, B_BUTTON,     { 0.20f, 0.80f, 0.30f, 1.0f } },
+        [TOUCH_Z]       = { 0.540f, 0.780f, 0.055f, Z_TRIG,       { 0.60f, 0.60f, 0.65f, 1.0f } },
+        [TOUCH_R]       = { 0.880f, 0.440f, 0.050f, R_TRIG,       { 0.60f, 0.60f, 0.65f, 1.0f } },
+        [TOUCH_START]   = { 0.500f, 0.460f, 0.050f, START_BUTTON, { 0.90f, 0.25f, 0.25f, 1.0f } },
+        [TOUCH_C_UP]    = { 0.790f, 0.570f, 0.042f, U_CBUTTONS,   { 0.95f, 0.80f, 0.15f, 1.0f } },
+        [TOUCH_C_DOWN]  = { 0.790f, 0.690f, 0.042f, D_CBUTTONS,   { 0.95f, 0.80f, 0.15f, 1.0f } },
+        [TOUCH_C_LEFT]  = { 0.700f, 0.630f, 0.042f, L_CBUTTONS,   { 0.95f, 0.80f, 0.15f, 1.0f } },
+        [TOUCH_C_RIGHT] = { 0.880f, 0.630f, 0.042f, R_CBUTTONS,   { 0.95f, 0.80f, 0.15f, 1.0f } },
+    },
+};
+
+static struct TouchButton touch_buttons[TOUCH_LAYOUT_PROFILE_COUNT][TOUCH_BUTTON_COUNT];
+
+static const char *const touch_profile_names[TOUCH_LAYOUT_PROFILE_COUNT] = {
+    [TOUCH_LAYOUT_LANDSCAPE] = "landscape",
+    [TOUCH_LAYOUT_PORTRAIT] = "portrait",
+};
 
 // Short stable names, used as keys in the saved layout file
 static const char *const touch_button_names[TOUCH_BUTTON_COUNT] = {
@@ -109,10 +135,88 @@ static struct Finger fingers[MAX_FINGERS];
 
 static int screen_width = 1;
 static int screen_height = 1;
+static int safe_left;
+static int safe_top;
+static int safe_right;
+static int safe_bottom;
+static float screen_pixels_per_point = 1.0f;
+static enum TouchLayoutProfile touch_profile = TOUCH_LAYOUT_LANDSCAPE;
 
-void touch_set_screen_size(int width, int height) {
+static int safe_width(void) {
+    return screen_width - safe_left - safe_right;
+}
+
+static int safe_height(void) {
+    return screen_height - safe_top - safe_bottom;
+}
+
+static float layout_unit(void) {
+    int w = safe_width();
+    int h = safe_height();
+    float unit = (float) (w < h ? w : h);
+    // A screen fraction feels consistent across phones, but grows excessive
+    // on a 13-inch iPad. Cap the authored unit in UIKit points so tablets get
+    // a comfortable modest increase while remaining independent of Retina
+    // scale and exact device model.
+    float point_cap = 560.0f * screen_pixels_per_point;
+    return unit < point_cap ? unit : point_cap;
+}
+
+static struct TouchButton *current_buttons(void) {
+    return touch_buttons[touch_profile];
+}
+
+void touch_set_screen_geometry(int width, int height,
+                               int inset_left, int inset_top,
+                               int inset_right, int inset_bottom,
+                               float pixels_per_point) {
+    int old_width = screen_width;
+    int old_height = screen_height;
+    int old_left = safe_left;
+    int old_top = safe_top;
+    int old_right = safe_right;
+    int old_bottom = safe_bottom;
+    float old_pixels_per_point = screen_pixels_per_point;
+    enum TouchLayoutProfile old_profile = touch_profile;
+
     screen_width = width > 0 ? width : 1;
     screen_height = height > 0 ? height : 1;
+    safe_left = inset_left > 0 ? inset_left : 0;
+    safe_top = inset_top > 0 ? inset_top : 0;
+    safe_right = inset_right > 0 ? inset_right : 0;
+    safe_bottom = inset_bottom > 0 ? inset_bottom : 0;
+    // Retro mode intentionally uses fewer than one drawable pixel per UIKit
+    // point, so sub-1.0 scales are valid here.
+    screen_pixels_per_point = pixels_per_point > 0.01f && pixels_per_point < 10.0f
+        ? pixels_per_point : 1.0f;
+
+    // Treat invalid or momentarily incomplete UIKit geometry as no insets.
+    // This can occur during the first layout pass but must never produce a
+    // negative coordinate space or divide by zero.
+    if (safe_left + safe_right >= screen_width) {
+        safe_left = 0;
+        safe_right = 0;
+    }
+    if (safe_top + safe_bottom >= screen_height) {
+        safe_top = 0;
+        safe_bottom = 0;
+    }
+    touch_profile = safe_height() > safe_width()
+        ? TOUCH_LAYOUT_PORTRAIT : TOUCH_LAYOUT_LANDSCAPE;
+
+    if (old_width != screen_width || old_height != screen_height
+        || old_left != safe_left || old_top != safe_top
+        || old_right != safe_right || old_bottom != safe_bottom
+        || old_pixels_per_point != screen_pixels_per_point
+        || old_profile != touch_profile) {
+        // Coordinates from the old orientation no longer describe the same
+        // physical points. Cancel them rather than leaving a control held.
+        touch_forget_fingers();
+    }
+}
+
+void touch_set_screen_size(int width, int height) {
+    touch_set_screen_geometry(width, height, 0, 0, 0, 0, 1.0f);
 }
 
 static struct Finger *find_finger(long long id) {
@@ -159,29 +263,35 @@ static float clampf(float v, float lo, float hi) {
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
-// Places a dragged button at (x, y), kept far enough from each edge that
-// the whole circle stays on screen. The margin has to come from the drawn
-// radius -- which the size setting scales -- rather than a fixed fraction,
-// and the horizontal one has to be converted from a height fraction to a
-// width fraction or it is wrong on every aspect ratio but 1:1.
+// Places a dragged button at a whole-window normalized coordinate, keeping
+// the entire drawn circle within the current UIKit safe area.
 static float button_radius(const struct TouchButton *b);
+static void button_center(const struct TouchButton *b, float *x, float *y);
 
 static void layout_place_button(struct TouchButton *b, float x, float y) {
-    float marginY = button_radius(b) / (float) screen_height;
-    float marginX = button_radius(b) / (float) screen_width;
+    float r = button_radius(b);
+    float min_x = (float) safe_left + r;
+    float max_x = (float) (safe_left + safe_width()) - r;
+    float min_y = (float) safe_top + r;
+    float max_y = (float) (safe_top + safe_height()) - r;
+    float px = x * (float) screen_width;
+    float py = y * (float) screen_height;
 
-    if (marginY > 0.45f) {
-        marginY = 0.45f;
+    if (min_x > max_x) {
+        min_x = max_x = (float) safe_left + (float) safe_width() * 0.5f;
     }
-    if (marginX > 0.45f) {
-        marginX = 0.45f;
+    if (min_y > max_y) {
+        min_y = max_y = (float) safe_top + (float) safe_height() * 0.5f;
     }
-    b->cx = clampf(x, marginX, 1.0f - marginX);
-    b->cy = clampf(y, marginY, 1.0f - marginY);
+    px = clampf(px, min_x, max_x);
+    py = clampf(py, min_y, max_y);
+    b->cx = (px - (float) safe_left) / (float) safe_width();
+    b->cy = (py - (float) safe_top) / (float) safe_height();
 }
 
 void touch_layout_reset(void) {
-    memcpy(touch_buttons, touch_button_defaults, sizeof(touch_buttons));
+    memcpy(current_buttons(), touch_button_defaults[touch_profile],
+           sizeof(touch_buttons[touch_profile]));
     layout_dirty = true;
 }
 
@@ -192,7 +302,7 @@ static void touch_layout_load(void) {
     char line[128];
     FILE *f;
 
-    touch_layout_reset();
+    memcpy(touch_buttons, touch_button_defaults, sizeof(touch_buttons));
     layout_dirty = false;
 
     f = fopen(fs_get_write_path(TOUCH_LAYOUT_FILE), "r");
@@ -200,20 +310,36 @@ static void touch_layout_load(void) {
         return;
     }
     while (fgets(line, sizeof(line), f) != NULL) {
+        char profile_name[32];
         char name[32];
         float cx, cy, r;
+        int profile = TOUCH_LAYOUT_LANDSCAPE;
         int i;
 
-        if (sscanf(line, "%31s %f %f %f", name, &cx, &cy, &r) != 4) {
-            continue;
+        if (sscanf(line, "%31s %31s %f %f %f", profile_name, name, &cx, &cy, &r) == 5) {
+            for (profile = 0; profile < TOUCH_LAYOUT_PROFILE_COUNT; profile++) {
+                if (strcmp(profile_name, touch_profile_names[profile]) == 0) {
+                    break;
+                }
+            }
+            if (profile == TOUCH_LAYOUT_PROFILE_COUNT) {
+                continue;
+            }
+        } else {
+            // Version 1 files had no profile. Their coordinates describe the
+            // old landscape-only layout, so preserve them as landscape.
+            profile = TOUCH_LAYOUT_LANDSCAPE;
+            if (sscanf(line, "%31s %f %f %f", name, &cx, &cy, &r) != 4) {
+                continue;
+            }
         }
         for (i = 0; i < TOUCH_BUTTON_COUNT; i++) {
             if (strcmp(name, touch_button_names[i]) == 0) {
                 if (cx >= 0.0f && cx <= 1.0f && cy >= 0.0f && cy <= 1.0f
                     && r > 0.005f && r < 0.5f) {
-                    touch_buttons[i].cx = cx;
-                    touch_buttons[i].cy = cy;
-                    touch_buttons[i].r = r;
+                    touch_buttons[profile][i].cx = cx;
+                    touch_buttons[profile][i].cy = cy;
+                    touch_buttons[profile][i].r = r;
                 }
                 break;
             }
@@ -225,7 +351,7 @@ static void touch_layout_load(void) {
 void touch_layout_save(void) {
     const char *path = fs_get_write_path(TOUCH_LAYOUT_FILE);
     FILE *f;
-    int i;
+    int profile, i;
 
     if (!layout_dirty) {
         return;
@@ -234,11 +360,16 @@ void touch_layout_save(void) {
     if (f == NULL) {
         return;
     }
-    fprintf(f, "# On-screen control layout: name center-x center-y radius\n");
+    fprintf(f, "# On-screen control layout: profile name center-x center-y radius\n");
+    fprintf(f, "# Coordinates are normalized within the current safe area.\n");
     fprintf(f, "# Delete this file to go back to the default layout.\n");
-    for (i = 0; i < TOUCH_BUTTON_COUNT; i++) {
-        fprintf(f, "%s %.4f %.4f %.4f\n", touch_button_names[i],
-                touch_buttons[i].cx, touch_buttons[i].cy, touch_buttons[i].r);
+    for (profile = 0; profile < TOUCH_LAYOUT_PROFILE_COUNT; profile++) {
+        for (i = 0; i < TOUCH_BUTTON_COUNT; i++) {
+            fprintf(f, "%s %s %.4f %.4f %.4f\n",
+                    touch_profile_names[profile], touch_button_names[i],
+                    touch_buttons[profile][i].cx, touch_buttons[profile][i].cy,
+                    touch_buttons[profile][i].r);
+        }
     }
     if (fs_close_atomic(f, path)) {
         layout_dirty = false;
@@ -272,12 +403,31 @@ static float button_radius(const struct TouchButton *b) {
     if (scale > 3.0f) {
         scale = 3.0f;
     }
-    return b->r * scale * (float) screen_height;
+    return b->r * scale * layout_unit();
+}
+
+static void button_center(const struct TouchButton *b, float *x, float *y) {
+    float r = button_radius(b);
+    float min_x = (float) safe_left + r;
+    float max_x = (float) (safe_left + safe_width()) - r;
+    float min_y = (float) safe_top + r;
+    float max_y = (float) (safe_top + safe_height()) - r;
+
+    if (min_x > max_x) {
+        min_x = max_x = (float) safe_left + (float) safe_width() * 0.5f;
+    }
+    if (min_y > max_y) {
+        min_y = max_y = (float) safe_top + (float) safe_height() * 0.5f;
+    }
+    *x = clampf((float) safe_left + b->cx * (float) safe_width(), min_x, max_x);
+    *y = clampf((float) safe_top + b->cy * (float) safe_height(), min_y, max_y);
 }
 
 static bool hit_button(const struct TouchButton *b, float x, float y) {
-    float dx = (x - b->cx) * (float) screen_width;
-    float dy = (y - b->cy) * (float) screen_height;
+    float cx, cy;
+    button_center(b, &cx, &cy);
+    float dx = x * (float) screen_width - cx;
+    float dy = y * (float) screen_height - cy;
     // Generous hit area: 1.4x the drawn radius
     float r = button_radius(b) * 1.4f;
     return dx * dx + dy * dy <= r * r;
@@ -301,7 +451,7 @@ void touch_down(long long finger_id, float x, float y) {
         // how the player signals they are done, once it lifts without
         // having dragged anything.
         for (int i = 0; i < TOUCH_BUTTON_COUNT; i++) {
-            if (hit_button(&touch_buttons[i], x, y)) {
+            if (hit_button(&current_buttons()[i], x, y)) {
                 f->role = ROLE_LAYOUT_DRAG;
                 f->button = i;
                 return;
@@ -312,17 +462,35 @@ void touch_down(long long finger_id, float x, float y) {
     }
 
     for (int i = 0; i < TOUCH_BUTTON_COUNT; i++) {
-        if (hit_button(&touch_buttons[i], x, y)) {
+        if (hit_button(&current_buttons()[i], x, y)) {
             f->role = ROLE_BUTTON;
             f->button = i;
             return;
         }
     }
 
-    if (x < STICK_ZONE_X && y > STICK_ZONE_Y) {
-        f->role = ROLE_STICK;
-        f->origin_x = x;
-        f->origin_y = y;
+    {
+        float px = x * (float) screen_width;
+        float py = y * (float) screen_height;
+        float sx = (px - (float) safe_left) / (float) safe_width();
+        float sy = (py - (float) safe_top) / (float) safe_height();
+        if (sx >= 0.0f && sx <= 1.0f && sy >= 0.0f && sy <= 1.0f
+            && sx < STICK_ZONE_X && sy > STICK_ZONE_Y) {
+            float range = STICK_RANGE * layout_unit();
+            float min_x = (float) safe_left + range;
+            float max_x = (float) (safe_left + safe_width()) - range;
+            float min_y = (float) safe_top + range;
+            float max_y = (float) (safe_top + safe_height()) - range;
+            if (min_x <= max_x) {
+                px = clampf(px, min_x, max_x);
+            }
+            if (min_y <= max_y) {
+                py = clampf(py, min_y, max_y);
+            }
+            f->role = ROLE_STICK;
+            f->origin_x = px / (float) screen_width;
+            f->origin_y = py / (float) screen_height;
+        }
     }
 }
 
@@ -335,7 +503,7 @@ void touch_motion(long long finger_id, float x, float y) {
     f->y = y;
 
     if (f->role == ROLE_LAYOUT_DRAG) {
-        layout_place_button(&touch_buttons[f->button], x, y);
+        layout_place_button(&current_buttons()[f->button], x, y);
         f->moved = true;
         layout_dirty = true;
     }
@@ -374,9 +542,9 @@ static void touch_read(OSContPad *pad) {
             continue;
         }
         if (f->role == ROLE_BUTTON) {
-            pad->button |= touch_buttons[f->button].mask;
+            pad->button |= current_buttons()[f->button].mask;
         } else if (f->role == ROLE_STICK) {
-            float range = STICK_RANGE * (float) screen_height;
+            float range = STICK_RANGE * layout_unit();
             float dx = (f->x - f->origin_x) * (float) screen_width / range;
             float dy = (f->y - f->origin_y) * (float) screen_height / range;
             float mag = sqrtf(dx * dx + dy * dy);
@@ -510,6 +678,7 @@ static bool button_is_held(int button) {
 static void overlay_build(void) {
     float w = (float) screen_width;
     float h = (float) screen_height;
+    float unit = layout_unit();
     static const float white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
     float opacity = configTouchOpacity;
     bool editing = layout_edit_mode;
@@ -539,7 +708,7 @@ static void overlay_build(void) {
     for (int i = 0; i < MAX_FINGERS && !editing; i++) {
         struct Finger *f = &fingers[i];
         if (f->active && f->role == ROLE_STICK) {
-            float range = STICK_RANGE * h;
+            float range = STICK_RANGE * unit;
             float ox = f->origin_x * w;
             float oy = f->origin_y * h;
             float dx = f->x * w - ox;
@@ -556,12 +725,17 @@ static void overlay_build(void) {
         }
     }
     if (!stick_held) {
-        overlay_push_circle(0.18f * w, 0.68f * h, STICK_RANGE * h, white, 0.08f * opacity);
-        overlay_push_circle(0.18f * w, 0.68f * h, STICK_RANGE * h * 0.45f, white, 0.15f * opacity);
+        float stick_x = touch_profile == TOUCH_LAYOUT_PORTRAIT ? 0.220f : 0.180f;
+        float stick_y = touch_profile == TOUCH_LAYOUT_PORTRAIT ? 0.800f : 0.680f;
+        float cx = (float) safe_left + stick_x * (float) safe_width();
+        float cy = (float) safe_top + stick_y * (float) safe_height();
+        overlay_push_circle(cx, cy, STICK_RANGE * unit, white, 0.08f * opacity);
+        overlay_push_circle(cx, cy, STICK_RANGE * unit * 0.45f, white, 0.15f * opacity);
     }
 
     for (int i = 0; i < TOUCH_BUTTON_COUNT; i++) {
-        const struct TouchButton *b = &touch_buttons[i];
+        const struct TouchButton *b = &current_buttons()[i];
+        float cx, cy;
         float alpha;
 
         if (editing) {
@@ -569,7 +743,8 @@ static void overlay_build(void) {
         } else {
             alpha = (button_is_held(i) ? 0.55f : 0.28f) * opacity;
         }
-        overlay_push_circle(b->cx * w, b->cy * h, button_radius(b), b->color, alpha);
+        button_center(b, &cx, &cy);
+        overlay_push_circle(cx, cy, button_radius(b), b->color, alpha);
     }
 
     {
@@ -579,9 +754,11 @@ static void overlay_build(void) {
             { TOUCH_C_LEFT, -1.0f, 0.0f }, { TOUCH_C_RIGHT, 1.0f, 0.0f },
         };
         for (size_t i = 0; i < sizeof(arrows) / sizeof(arrows[0]); i++) {
-            const struct TouchButton *b = &touch_buttons[arrows[i].id];
-            overlay_push_arrow(b->cx * w, b->cy * h, button_radius(b),
-                               arrows[i].dx, arrows[i].dy, arrow_alpha_base);
+            const struct TouchButton *b = &current_buttons()[arrows[i].id];
+            float cx, cy;
+            button_center(b, &cx, &cy);
+            overlay_push_arrow(cx, cy, button_radius(b), arrows[i].dx,
+                               arrows[i].dy, arrow_alpha_base);
         }
     }
 }
@@ -591,7 +768,21 @@ static void overlay_build(void) {
 // normalized device coordinates. Used directly by the Metal backend; the
 // OpenGL path below renders the same data itself.
 const float *touch_overlay_build(int width, int height, int *num_verts) {
-    touch_set_screen_size(width, height);
+    if (width > 0 && height > 0 && (width != screen_width || height != screen_height)) {
+        // Rendering can observe a new drawable one frame before SDL delivers
+        // its resize event. Preserve the safe-area proportions until UIKit's
+        // exact insets are queried by the event pump.
+        float left_fraction = (float) safe_left / (float) screen_width;
+        float top_fraction = (float) safe_top / (float) screen_height;
+        float right_fraction = (float) safe_right / (float) screen_width;
+        float bottom_fraction = (float) safe_bottom / (float) screen_height;
+        touch_set_screen_geometry(width, height,
+                                  (int) lroundf(left_fraction * (float) width),
+                                  (int) lroundf(top_fraction * (float) height),
+                                  (int) lroundf(right_fraction * (float) width),
+                                  (int) lroundf(bottom_fraction * (float) height),
+                                  screen_pixels_per_point);
+    }
     overlay_build();
     *num_verts = overlay_num_verts;
     return overlay_verts;

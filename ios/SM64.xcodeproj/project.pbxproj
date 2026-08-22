@@ -1,0 +1,341 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXFileReference section */
+		A00000000000000000000050 /* SM64-us.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "SM64-us.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A00000000000000000000051 /* SM64-jp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "SM64-jp.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A00000000000000000000060 /* Info.plist.in */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist.in; sourceTree = "<group>"; };
+		A00000000000000000000061 /* xcode-build.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "xcode-build.sh"; sourceTree = "<group>"; };
+		A00000000000000000000062 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		A00000000000000000000063 /* Project README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = "Project README.md"; path = ../README.md; sourceTree = "<group>"; };
+		A00000000000000000000064 /* Makefile */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.make; path = ../Makefile; sourceTree = "<group>"; };
+		A00000000000000000000065 /* Source */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Source; path = ../src; sourceTree = "<group>"; };
+		A00000000000000000000066 /* Headers */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Headers; path = ../include; sourceTree = "<group>"; };
+		A00000000000000000000067 /* Actors */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Actors; path = ../actors; sourceTree = "<group>"; };
+		A00000000000000000000068 /* Levels */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Levels; path = ../levels; sourceTree = "<group>"; };
+		A00000000000000000000069 /* Tools */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Tools; path = ../tools; sourceTree = "<group>"; };
+		A00000000000000000000070 /* Icon-60@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "Icon-60@2x.png"; sourceTree = "<group>"; };
+		A00000000000000000000071 /* Icon-60@3x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "Icon-60@3x.png"; sourceTree = "<group>"; };
+		A00000000000000000000072 /* Icon-76.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "Icon-76.png"; sourceTree = "<group>"; };
+		A00000000000000000000073 /* Icon-76@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "Icon-76@2x.png"; sourceTree = "<group>"; };
+		A00000000000000000000074 /* Icon-83.5@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "Icon-83.5@2x.png"; sourceTree = "<group>"; };
+		A00000000000000000000075 /* Icon-Small-40.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "Icon-Small-40.png"; sourceTree = "<group>"; };
+		A00000000000000000000076 /* Icon-Small-40@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "Icon-Small-40@2x.png"; sourceTree = "<group>"; };
+		A00000000000000000000077 /* Icon-Small-40@3x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "Icon-Small-40@3x.png"; sourceTree = "<group>"; };
+		A00000000000000000000078 /* Icon-Small.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "Icon-Small.png"; sourceTree = "<group>"; };
+		A00000000000000000000079 /* Icon-Small@2x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "Icon-Small@2x.png"; sourceTree = "<group>"; };
+		A0000000000000000000007A /* Icon-Small@3x.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "Icon-Small@3x.png"; sourceTree = "<group>"; };
+		A0000000000000000000007B /* AppIcon-1024.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "AppIcon-1024.png"; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		A00000000000000000000002 = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000004 /* iOS Support */,
+				A00000000000000000000005 /* Repository */,
+				A00000000000000000000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A00000000000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000050 /* SM64-us.app */,
+				A00000000000000000000051 /* SM64-jp.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000004 /* iOS Support */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000062 /* README.md */,
+				A00000000000000000000060 /* Info.plist.in */,
+				A00000000000000000000061 /* xcode-build.sh */,
+				A00000000000000000000006 /* App Icons */,
+			);
+			name = "iOS Support";
+			sourceTree = "<group>";
+		};
+		A00000000000000000000005 /* Repository */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000063 /* Project README.md */,
+				A00000000000000000000064 /* Makefile */,
+				A00000000000000000000065 /* Source */,
+				A00000000000000000000066 /* Headers */,
+				A00000000000000000000067 /* Actors */,
+				A00000000000000000000068 /* Levels */,
+				A00000000000000000000069 /* Tools */,
+			);
+			name = Repository;
+			sourceTree = "<group>";
+		};
+		A00000000000000000000006 /* App Icons */ = {
+			isa = PBXGroup;
+			children = (
+				A0000000000000000000007B /* AppIcon-1024.png */,
+				A00000000000000000000070 /* Icon-60@2x.png */,
+				A00000000000000000000071 /* Icon-60@3x.png */,
+				A00000000000000000000072 /* Icon-76.png */,
+				A00000000000000000000073 /* Icon-76@2x.png */,
+				A00000000000000000000074 /* Icon-83.5@2x.png */,
+				A00000000000000000000075 /* Icon-Small-40.png */,
+				A00000000000000000000076 /* Icon-Small-40@2x.png */,
+				A00000000000000000000077 /* Icon-Small-40@3x.png */,
+				A00000000000000000000078 /* Icon-Small.png */,
+				A00000000000000000000079 /* Icon-Small@2x.png */,
+				A0000000000000000000007A /* Icon-Small@3x.png */,
+			);
+			name = "App Icons";
+			path = icons;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A00000000000000000000010 /* SM64 US */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A00000000000000000000032 /* Build configuration list for PBXNativeTarget "SM64 US" */;
+			buildPhases = (
+				A00000000000000000000040 /* Build Game Executable */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "SM64 US";
+			productName = "SM64-us";
+			productReference = A00000000000000000000050 /* SM64-us.app */;
+			productType = "com.apple.product-type.application";
+		};
+		A00000000000000000000011 /* SM64 JP */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A00000000000000000000035 /* Build configuration list for PBXNativeTarget "SM64 JP" */;
+			buildPhases = (
+				A00000000000000000000042 /* Build Game Executable */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "SM64 JP";
+			productName = "SM64-jp";
+			productReference = A00000000000000000000051 /* SM64-jp.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A00000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 2660;
+				TargetAttributes = {
+					A00000000000000000000010 = {
+						CreatedOnToolsVersion = 26.6;
+					};
+					A00000000000000000000011 = {
+						CreatedOnToolsVersion = 26.6;
+					};
+				};
+			};
+			buildConfigurationList = A00000000000000000000023 /* Build configuration list for PBXProject "SM64" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A00000000000000000000002;
+			productRefGroup = A00000000000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A00000000000000000000010 /* SM64 US */,
+				A00000000000000000000011 /* SM64 JP */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		A00000000000000000000040 /* Build Game Executable */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Build Game Executable";
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_PATH)",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "\"${SRCROOT}/xcode-build.sh\"";
+			showEnvVarsInLog = 0;
+		};
+		A00000000000000000000042 /* Build Game Executable */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Build Game Executable";
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_PATH)",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "\"${SRCROOT}/xcode-build.sh\"";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A00000000000000000000020 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				CLANG_ENABLE_MODULES = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+			};
+			name = Debug;
+		};
+		A00000000000000000000021 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				CLANG_ENABLE_MODULES = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+			};
+			name = Release;
+		};
+		A00000000000000000000030 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				EXECUTABLE_NAME = sm64;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist.in;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.sm64port.us;
+				PRODUCT_NAME = "SM64-us";
+				SM64_DISPLAY_NAME = "SM64 us";
+				SM64_ENABLE_OPENGL = NO;
+				SM64_VERSION = us;
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A00000000000000000000031 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				EXECUTABLE_NAME = sm64;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist.in;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.sm64port.us;
+				PRODUCT_NAME = "SM64-us";
+				SM64_DISPLAY_NAME = "SM64 us";
+				SM64_ENABLE_OPENGL = NO;
+				SM64_VERSION = us;
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		A00000000000000000000033 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				EXECUTABLE_NAME = sm64;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist.in;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.sm64port.jp;
+				PRODUCT_NAME = "SM64-jp";
+				SM64_DISPLAY_NAME = "SM64 jp";
+				SM64_ENABLE_OPENGL = NO;
+				SM64_VERSION = jp;
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A00000000000000000000034 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				EXECUTABLE_NAME = sm64;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist.in;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.sm64port.jp;
+				PRODUCT_NAME = "SM64-jp";
+				SM64_DISPLAY_NAME = "SM64 jp";
+				SM64_ENABLE_OPENGL = NO;
+				SM64_VERSION = jp;
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A00000000000000000000023 /* Build configuration list for PBXProject "SM64" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A00000000000000000000020 /* Debug */,
+				A00000000000000000000021 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A00000000000000000000032 /* Build configuration list for PBXNativeTarget "SM64 US" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A00000000000000000000030 /* Debug */,
+				A00000000000000000000031 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A00000000000000000000035 /* Build configuration list for PBXNativeTarget "SM64 JP" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A00000000000000000000033 /* Debug */,
+				A00000000000000000000034 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A00000000000000000000001 /* Project object */;
+}

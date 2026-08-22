@@ -6,6 +6,10 @@
 #include "SDL2/SDL.h"
 #endif
 
+#ifdef TARGET_IOS
+#include <TargetConditionals.h>
+#endif
+
 #include "audio_api.h"
 
 static SDL_AudioDeviceID dev;
@@ -20,7 +24,13 @@ static bool audio_sdl_init(void) {
     want.freq = 32000;
     want.format = AUDIO_S16;
     want.channels = 2;
+#if defined(TARGET_IOS) && TARGET_OS_SIMULATOR
+    // CoreSimulator proxies audio through macOS. Give that extra hop more
+    // scheduling headroom so its real-time I/O thread does not miss cycles.
+    want.samples = 1024;
+#else
     want.samples = 512;
+#endif
     want.callback = NULL;
     dev = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
     if (dev == 0) {
