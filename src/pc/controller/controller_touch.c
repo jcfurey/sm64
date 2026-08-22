@@ -162,6 +162,19 @@ static float layout_unit(void) {
     return unit < point_cap ? unit : point_cap;
 }
 
+static float control_unit(void) {
+    float unit = layout_unit();
+    float safe_width_points = (float) safe_width() / screen_pixels_per_point;
+
+    // Portrait phones have less visible game area around the authored
+    // controls. Leave landscape and tablet sizing unchanged, while making
+    // portrait phone controls compact enough to keep the action visible.
+    if (touch_profile == TOUCH_LAYOUT_PORTRAIT && safe_width_points < 600.0f) {
+        unit *= 0.72f;
+    }
+    return unit;
+}
+
 static struct TouchButton *current_buttons(void) {
     return touch_buttons[touch_profile];
 }
@@ -403,7 +416,7 @@ static float button_radius(const struct TouchButton *b) {
     if (scale > 3.0f) {
         scale = 3.0f;
     }
-    return b->r * scale * layout_unit();
+    return b->r * scale * control_unit();
 }
 
 static void button_center(const struct TouchButton *b, float *x, float *y) {
@@ -476,7 +489,7 @@ void touch_down(long long finger_id, float x, float y) {
         float sy = (py - (float) safe_top) / (float) safe_height();
         if (sx >= 0.0f && sx <= 1.0f && sy >= 0.0f && sy <= 1.0f
             && sx < STICK_ZONE_X && sy > STICK_ZONE_Y) {
-            float range = STICK_RANGE * layout_unit();
+            float range = STICK_RANGE * control_unit();
             float min_x = (float) safe_left + range;
             float max_x = (float) (safe_left + safe_width()) - range;
             float min_y = (float) safe_top + range;
@@ -544,7 +557,7 @@ static void touch_read(OSContPad *pad) {
         if (f->role == ROLE_BUTTON) {
             pad->button |= current_buttons()[f->button].mask;
         } else if (f->role == ROLE_STICK) {
-            float range = STICK_RANGE * layout_unit();
+            float range = STICK_RANGE * control_unit();
             float dx = (f->x - f->origin_x) * (float) screen_width / range;
             float dy = (f->y - f->origin_y) * (float) screen_height / range;
             float mag = sqrtf(dx * dx + dy * dy);
@@ -678,7 +691,7 @@ static bool button_is_held(int button) {
 static void overlay_build(void) {
     float w = (float) screen_width;
     float h = (float) screen_height;
-    float unit = layout_unit();
+    float unit = control_unit();
     static const float white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
     float opacity = configTouchOpacity;
     bool editing = layout_edit_mode;

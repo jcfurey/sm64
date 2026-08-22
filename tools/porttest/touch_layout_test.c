@@ -190,6 +190,9 @@ int main(void) {
         CHECK(press_reads_a(safe_x(portrait_a_x), safe_y(portrait_a_y)),
               "portrait starts from its independent authored layout");
         CHECK(overlay_fits_safe_area(), "portrait controls avoid the island and home indicator");
+        CHECK(!press_reads_a(safe_x(portrait_a_x) - 115.0f / (float) geometry.width,
+                             safe_y(portrait_a_y)),
+              "portrait phone controls use the compact touch radius");
 
         float portrait_custom_x = safe_x(0.36f);
         float portrait_custom_y = safe_y(0.68f);
