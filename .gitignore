@@ -83,3 +83,7 @@ sm64config.txt
 /tools/porttest/*.o
 /tools/porttest/porttest_save.bin*
 /tools/porttest/sm64_touch_layout.txt*
+
+# Built by ios/build-sdl2.sh
+/ios/SDL2/
+/ios/sdl2-build/
