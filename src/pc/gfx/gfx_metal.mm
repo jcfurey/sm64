@@ -139,20 +139,24 @@ static void append_line(char *buf, size_t *len, const char *str) {
     buf[(*len)++] = '\n';
 }
 
-static const char *shader_item_to_str(uint32_t item, bool with_alpha, bool only_alpha, bool inputs_have_alpha, bool hint_single_element) {
+// PSInput always declares the combiner inputs as float4 -- VSMain pads them
+// with 1.0 when the combiner has no alpha -- so an expression building a
+// float3 has to say .rgb. MSL rejects implicit vector conversions outright,
+// and a shader that trips one falls back to the solid-magenta pipeline.
+static const char *shader_item_to_str(uint32_t item, bool with_alpha, bool only_alpha, bool hint_single_element) {
     if (!only_alpha) {
         switch (item) {
             default:
             case SHADER_0:
                 return with_alpha ? "float4(0.0, 0.0, 0.0, 0.0)" : "float3(0.0, 0.0, 0.0)";
             case SHADER_INPUT_1:
-                return with_alpha || !inputs_have_alpha ? "in.input1" : "in.input1.rgb";
+                return with_alpha ? "in.input1" : "in.input1.rgb";
             case SHADER_INPUT_2:
-                return with_alpha || !inputs_have_alpha ? "in.input2" : "in.input2.rgb";
+                return with_alpha ? "in.input2" : "in.input2.rgb";
             case SHADER_INPUT_3:
-                return with_alpha || !inputs_have_alpha ? "in.input3" : "in.input3.rgb";
+                return with_alpha ? "in.input3" : "in.input3.rgb";
             case SHADER_INPUT_4:
-                return with_alpha || !inputs_have_alpha ? "in.input4" : "in.input4.rgb";
+                return with_alpha ? "in.input4" : "in.input4.rgb";
             case SHADER_TEXEL0:
                 return with_alpha ? "texVal0" : "texVal0.rgb";
             case SHADER_TEXEL0A:
@@ -184,30 +188,30 @@ static const char *shader_item_to_str(uint32_t item, bool with_alpha, bool only_
     }
 }
 
-static void append_formula(char *buf, size_t *len, uint8_t c[2][4], bool do_single, bool do_multiply, bool do_mix, bool with_alpha, bool only_alpha, bool opt_alpha) {
+static void append_formula(char *buf, size_t *len, uint8_t c[2][4], bool do_single, bool do_multiply, bool do_mix, bool with_alpha, bool only_alpha) {
     if (do_single) {
-        append_str(buf, len, shader_item_to_str(c[only_alpha][3], with_alpha, only_alpha, opt_alpha, false));
+        append_str(buf, len, shader_item_to_str(c[only_alpha][3], with_alpha, only_alpha, false));
     } else if (do_multiply) {
-        append_str(buf, len, shader_item_to_str(c[only_alpha][0], with_alpha, only_alpha, opt_alpha, false));
+        append_str(buf, len, shader_item_to_str(c[only_alpha][0], with_alpha, only_alpha, false));
         append_str(buf, len, " * ");
-        append_str(buf, len, shader_item_to_str(c[only_alpha][2], with_alpha, only_alpha, opt_alpha, true));
+        append_str(buf, len, shader_item_to_str(c[only_alpha][2], with_alpha, only_alpha, true));
     } else if (do_mix) {
         append_str(buf, len, "mix(");
-        append_str(buf, len, shader_item_to_str(c[only_alpha][1], with_alpha, only_alpha, opt_alpha, false));
+        append_str(buf, len, shader_item_to_str(c[only_alpha][1], with_alpha, only_alpha, false));
         append_str(buf, len, ", ");
-        append_str(buf, len, shader_item_to_str(c[only_alpha][0], with_alpha, only_alpha, opt_alpha, false));
+        append_str(buf, len, shader_item_to_str(c[only_alpha][0], with_alpha, only_alpha, false));
         append_str(buf, len, ", ");
-        append_str(buf, len, shader_item_to_str(c[only_alpha][2], with_alpha, only_alpha, opt_alpha, true));
+        append_str(buf, len, shader_item_to_str(c[only_alpha][2], with_alpha, only_alpha, true));
         append_str(buf, len, ")");
     } else {
         append_str(buf, len, "(");
-        append_str(buf, len, shader_item_to_str(c[only_alpha][0], with_alpha, only_alpha, opt_alpha, false));
+        append_str(buf, len, shader_item_to_str(c[only_alpha][0], with_alpha, only_alpha, false));
         append_str(buf, len, " - ");
-        append_str(buf, len, shader_item_to_str(c[only_alpha][1], with_alpha, only_alpha, opt_alpha, false));
+        append_str(buf, len, shader_item_to_str(c[only_alpha][1], with_alpha, only_alpha, false));
         append_str(buf, len, ") * ");
-        append_str(buf, len, shader_item_to_str(c[only_alpha][2], with_alpha, only_alpha, opt_alpha, true));
+        append_str(buf, len, shader_item_to_str(c[only_alpha][2], with_alpha, only_alpha, true));
         append_str(buf, len, " + ");
-        append_str(buf, len, shader_item_to_str(c[only_alpha][3], with_alpha, only_alpha, opt_alpha, false));
+        append_str(buf, len, shader_item_to_str(c[only_alpha][3], with_alpha, only_alpha, false));
     }
 }
 
@@ -319,12 +323,12 @@ static size_t generate_shader_source(char *buf, struct CCFeatures *cc, size_t *n
     append_str(buf, &len, cc->opt_alpha ? "    float4 texel = " : "    float3 texel = ");
     if (!cc->color_alpha_same && cc->opt_alpha) {
         append_str(buf, &len, "float4(");
-        append_formula(buf, &len, cc->c, cc->do_single[0], cc->do_multiply[0], cc->do_mix[0], false, false, true);
+        append_formula(buf, &len, cc->c, cc->do_single[0], cc->do_multiply[0], cc->do_mix[0], false, false);
         append_str(buf, &len, ", ");
-        append_formula(buf, &len, cc->c, cc->do_single[1], cc->do_multiply[1], cc->do_mix[1], true, true, true);
+        append_formula(buf, &len, cc->c, cc->do_single[1], cc->do_multiply[1], cc->do_mix[1], true, true);
         append_str(buf, &len, ")");
     } else {
-        append_formula(buf, &len, cc->c, cc->do_single[0], cc->do_multiply[0], cc->do_mix[0], cc->opt_alpha, false, cc->opt_alpha);
+        append_formula(buf, &len, cc->c, cc->do_single[0], cc->do_multiply[0], cc->do_mix[0], cc->opt_alpha, false);
     }
     append_line(buf, &len, ";");
 
