@@ -329,13 +329,25 @@ endif
 #==============================================================================#
 
 BUILD_DIR_BASE := build
+
+# Which iOS SDK to build against: iphoneos for a device, iphonesimulator to run
+# under the simulator. The two produce incompatible binaries, so they get
+# separate build directories and separate SDL2 slices rather than overwriting
+# each other. Declared here because BUILD_DIR below is assigned immediately.
+IOS_SDK ?= iphoneos
+ifeq ($(IOS_SDK),iphonesimulator)
+  IOS_BUILD_SUFFIX := _iossim
+else
+  IOS_BUILD_SUFFIX := _ios
+endif
+
 # BUILD_DIR is the location where all build artifacts are placed
 ifeq ($(TARGET_N64),1)
   BUILD_DIR := $(BUILD_DIR_BASE)/$(VERSION)
 else ifeq ($(TARGET_WEB),1)
   BUILD_DIR := $(BUILD_DIR_BASE)/$(VERSION)_web
 else ifeq ($(TARGET_IOS),1)
-  BUILD_DIR := $(BUILD_DIR_BASE)/$(VERSION)_ios
+  BUILD_DIR := $(BUILD_DIR_BASE)/$(VERSION)$(IOS_BUILD_SUFFIX)
 else
   BUILD_DIR := $(BUILD_DIR_BASE)/$(VERSION)_pc
 endif
@@ -586,15 +598,22 @@ else
 endif
 
 ifeq ($(TARGET_IOS),1)
-  # Cross-compile to iOS with the Xcode toolchain (macOS host required)
-  IOS_SDK ?= iphoneos
+  # Cross-compile to iOS with the Xcode toolchain (macOS host required).
+  # IOS_SDK is set further up, next to BUILD_DIR.
   IOS_ARCH ?= arm64
   IOS_MIN_VERSION ?= 14.0
   IOS_SYSROOT ?= $(shell xcrun --sdk $(IOS_SDK) --show-sdk-path)
-  # A static SDL2 built for iOS: headers in $(IOS_SDL2_PATH)/include/SDL2,
-  # libSDL2.a in $(IOS_SDL2_PATH)/lib (see ios/README.md)
-  IOS_SDL2_PATH ?= ios/SDL2
-  IOS_TARGET_FLAGS := -isysroot $(IOS_SYSROOT) -arch $(IOS_ARCH) -miphoneos-version-min=$(IOS_MIN_VERSION)
+  # A static SDL2 built for the same SDK: headers in $(IOS_SDL2_PATH)/include/SDL2,
+  # libSDL2.a in $(IOS_SDL2_PATH)/lib (see ios/README.md). The simulator wants
+  # its own deployment-target spelling; -miphoneos-version-min is rejected there.
+  ifeq ($(IOS_SDK),iphonesimulator)
+    IOS_SDL2_PATH ?= ios/SDL2-simulator
+    IOS_MIN_VERSION_FLAG := -mios-simulator-version-min=$(IOS_MIN_VERSION)
+  else
+    IOS_SDL2_PATH ?= ios/SDL2
+    IOS_MIN_VERSION_FLAG := -miphoneos-version-min=$(IOS_MIN_VERSION)
+  endif
+  IOS_TARGET_FLAGS := -isysroot $(IOS_SYSROOT) -arch $(IOS_ARCH) $(IOS_MIN_VERSION_FLAG)
 
   CC := $(shell xcrun --sdk $(IOS_SDK) --find clang)
   CXX := $(shell xcrun --sdk $(IOS_SDK) --find clang++)
@@ -621,7 +640,7 @@ endif
 ifeq ($(TARGET_IOS),1)
   ifeq ($(filter clean distclean,$(MAKECMDGOALS)),)
     ifeq ($(wildcard $(IOS_SDL2_PATH)/include/SDL2/SDL.h),)
-      $(error SDL2 for iOS not found at $(IOS_SDL2_PATH) - build it first, see ios/README.md)
+      $(error SDL2 for $(IOS_SDK) not found at $(IOS_SDL2_PATH) - build it first with 'IOS_SDK=$(IOS_SDK) ./ios/build-sdl2.sh', see ios/README.md)
     endif
   endif
   # Recent Apple SDKs fortify bzero() and sprintf() into macros expanding to

@@ -87,3 +87,6 @@ sm64config.txt
 # Built by ios/build-sdl2.sh
 /ios/SDL2/
 /ios/sdl2-build/
+
+# Built by IOS_SDK=iphonesimulator ios/build-sdl2.sh
+/ios/SDL2-simulator/

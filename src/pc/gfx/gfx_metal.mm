@@ -14,9 +14,12 @@
 #ifdef ENABLE_METAL
 
 #import <Metal/Metal.h>
+#include <TargetConditionals.h>
 #import <QuartzCore/CAMetalLayer.h>
 
 #include <stdio.h>
+#include <time.h>
+#include <errno.h>
 #include <string.h>
 
 #ifndef _LANGUAGE_C
@@ -902,7 +905,40 @@ void gfx_metal_present(void) {
 #ifdef HIGH_FPS_PC
     render_fps *= gRenderSubframes;
 #endif
+
+#if TARGET_OS_SIMULATOR
+    // The simulator has no presentDrawable:afterMinimumDuration:, and its
+    // drawable queue does not apply the backpressure a device's does, so
+    // nothing else here bounds the game loop -- without this the game runs as
+    // fast as the host can draw. Hold the frame by hand instead, which is the
+    // job that API does on a device.
+    {
+        static double next_present_s;
+        double interval = 1.0 / render_fps;
+        struct timespec ts;
+
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        double now_s = (double) ts.tv_sec + (double) ts.tv_nsec / 1e9;
+
+        if (next_present_s > now_s) {
+            double wait = next_present_s - now_s;
+            struct timespec rel = { (time_t) wait, (long) ((wait - (double) (time_t) wait) * 1e9) };
+            while (nanosleep(&rel, &rel) == -1 && errno == EINTR) {
+            }
+            now_s = next_present_s;
+        }
+        // A stall longer than a frame (a level load) must not bank credit and
+        // come back as a burst of catch-up frames, so restart the schedule
+        // rather than let the deadline fall behind.
+        if (next_present_s < now_s - interval) {
+            next_present_s = now_s;
+        }
+        next_present_s += interval;
+    }
+    [mtl.command_buffer presentDrawable:mtl.drawable];
+#else
     [mtl.command_buffer presentDrawable:mtl.drawable afterMinimumDuration:1.0 / render_fps];
+#endif
     [mtl.command_buffer addCompletedHandler:^(id<MTLCommandBuffer> cb) {
         dispatch_semaphore_signal(mtl.frame_semaphore);
     }];
