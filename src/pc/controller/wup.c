@@ -1,4 +1,6 @@
-#if !defined(__MINGW32__) && !defined(__BSD__) && !defined(TARGET_WEB)
+// Linux-only: this driver talks to the adapter through linux/input.h and
+// libusb. Matches the guard on controller_wup.c/.h and its entry-point use.
+#ifdef __linux__
 // See LICENSE for license
 
 #define _XOPEN_SOURCE 600
