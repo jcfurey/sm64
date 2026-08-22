@@ -9,9 +9,10 @@
 // platform layer (pc_main.c)
 extern s32 gCurrentFPS;
 
-// Updates and renders the options menu. Opened by pressing R on the pause
-// screen. Returns TRUE while the menu is open, in which case the pause menu
-// underneath must not process this frame's input or render.
+// Updates and renders the options menu and its Debug Features submenu. Opened
+// by pressing R on the pause screen. Returns TRUE while a menu is open, in
+// which case the pause menu underneath must not process this frame's input or
+// render.
 s32 optmenu_update_and_render(void);
 
 #endif

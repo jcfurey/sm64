@@ -13,8 +13,8 @@ The iOS target produces an optimized native arm64 app for the `us` and `jp`
 versions, rendering through **Metal** (with an OpenGL ES 2.0 fallback) with
 touch controls, Bluetooth controller support, frame interpolation up to
 120 fps on ProMotion displays, and an in-game options menu (frame rate,
-wireframe/collision view modes, a retro 4:3 240p mode, FPS counter and
-debug overlays). It requires a macOS host with Xcode:
+wireframe/collision view modes, a retro 4:3 240p mode, FPS counter and a
+dedicated Debug Features screen). It requires a macOS host with Xcode:
 
 ```
 ./ios/build-sdl2.sh                 # one-time: build static SDL2 for iOS

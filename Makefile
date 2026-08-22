@@ -396,6 +396,9 @@ include Makefile.split
 LEVEL_C_FILES     := $(wildcard levels/*/leveldata.c) $(wildcard levels/*/script.c) $(wildcard levels/*/geo.c)
 C_FILES           := $(foreach dir,$(SRC_DIRS),$(wildcard $(dir)/*.c)) $(LEVEL_C_FILES)
 CXX_FILES         := $(foreach dir,$(SRC_DIRS),$(wildcard $(dir)/*.cpp))
+ifneq ($(TARGET_IOS),1)
+  C_FILES         := $(filter-out src/pc/fs_ios_storage.c,$(C_FILES))
+endif
 ifeq ($(ENABLE_METAL),1)
   MM_FILES        := $(foreach dir,$(SRC_DIRS),$(wildcard $(dir)/*.mm))
 else
@@ -828,12 +831,19 @@ IOS_DISPLAY_NAME  ?= SM64 $(VERSION)
 IOS_SIGN_IDENTITY ?= -
 IOS_APP := $(BUILD_DIR)/SM64-$(VERSION).app
 IOS_IPA := $(BUILD_DIR)/sm64.$(VERSION).ipa
+IOS_ICON_NAMES := Icon-60@2x.png Icon-60@3x.png \
+                  Icon-76.png Icon-76@2x.png Icon-83.5@2x.png \
+                  Icon-Small-40.png Icon-Small-40@2x.png Icon-Small-40@3x.png \
+                  Icon-Small.png Icon-Small@2x.png Icon-Small@3x.png
+IOS_ICON_FILES := $(addprefix ios/icons/,$(IOS_ICON_NAMES))
 
-.PHONY: ios-app ios-ipa
+.PHONY: ios-app ios-ipa check-ios-bundle
 ios-app: $(IOS_APP)
 ios-ipa: $(IOS_IPA)
+check-ios-bundle: $(IOS_APP)
+	$(PYTHON) tools/porttest/check-ios-bundle.py $(IOS_APP)
 
-$(IOS_APP): $(EXE) ios/Info.plist.in
+$(IOS_APP): $(EXE) ios/Info.plist.in $(IOS_ICON_FILES)
 	@$(PRINT) "$(GREEN)Packaging app bundle: $(BLUE)$@ $(NO_COL)\n"
 	$(V)$(RM) -r $@
 	$(V)mkdir -p $@
@@ -841,6 +851,7 @@ $(IOS_APP): $(EXE) ios/Info.plist.in
 	    -e 's|@DISPLAY_NAME@|$(IOS_DISPLAY_NAME)|g' \
 	    -e 's|@MIN_VERSION@|$(IOS_MIN_VERSION)|g' ios/Info.plist.in > $@/Info.plist
 	$(V)cp $(EXE) $@/sm64
+	$(V)cp $(IOS_ICON_FILES) $@/
 	$(V)codesign --force --sign "$(IOS_SIGN_IDENTITY)" $@
 
 $(IOS_IPA): $(IOS_APP)

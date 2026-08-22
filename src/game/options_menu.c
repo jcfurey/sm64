@@ -1,8 +1,9 @@
 // In-game options menu, opened by pressing R on the pause screen.
 //
 // Navigation: stick or D-pad up/down selects an option, left/right or A
-// cycles its value, and R, B or Start closes the menu (saving the config).
-// Settings take effect immediately and persist in the config file.
+// cycles its value, and A opens submenus. B returns from a submenu (or closes
+// the main screen); R or Start closes the menu and saves the config. Settings
+// take effect immediately and persist in the config file.
 
 #ifndef TARGET_N64
 
@@ -48,9 +49,15 @@ enum OptionId {
     OPT_TOUCH_ALPHA,
     OPT_TOUCH_EDIT,
 #endif
+    OPT_DEBUG_FEATURES,
     OPT_LEVEL_SELECT,
     OPT_DEBUG_INFO,
     OPT_COUNT
+};
+
+enum OptionPage {
+    OPT_PAGE_MAIN,
+    OPT_PAGE_DEBUG,
 };
 
 struct OptionDef {
@@ -104,13 +111,44 @@ static const struct OptionDef sOptions[OPT_COUNT] = {
     [OPT_TOUCH_ALPHA] = { "TOUCH ALPHA", sChoicesTouchAlpha, 4 },
     [OPT_TOUCH_EDIT]  = { "MOVE BUTTONS", sChoicesEdit,      2 },
 #endif
-    [OPT_LEVEL_SELECT] = { "LEVEL SELECT", sChoicesOffOn,  2 },
-    [OPT_DEBUG_INFO] = { "DEBUG INFO",  sChoicesOffOn,    2 },
+    [OPT_DEBUG_FEATURES] = { "DEBUG FEATURES", NULL,          0 },
+    [OPT_LEVEL_SELECT]   = { "LEVEL SELECT",   sChoicesOffOn, 2 },
+    [OPT_DEBUG_INFO]     = { "DEBUG INFO",     sChoicesOffOn, 2 },
+};
+
+static const enum OptionId sMainOptions[] = {
+    OPT_FRAME_CAP,
+    OPT_VIEW_MODE,
+    OPT_RETRO_MODE,
+    OPT_SHOW_FPS,
+    OPT_HUD,
+#ifdef TARGET_IOS
+    OPT_TOUCH_SIZE,
+    OPT_TOUCH_ALPHA,
+    OPT_TOUCH_EDIT,
+#endif
+    OPT_DEBUG_FEATURES,
+};
+
+static const enum OptionId sDebugOptions[] = {
+    OPT_LEVEL_SELECT,
+    OPT_DEBUG_INFO,
 };
 
 static s32 sMenuOpen = FALSE;
 static s32 sMenuSel = 0;
 static s32 sStickWasNeutral = TRUE;
+static enum OptionPage sMenuPage = OPT_PAGE_MAIN;
+
+static const enum OptionId *opt_page_options(s32 *count) {
+    if (sMenuPage == OPT_PAGE_DEBUG) {
+        *count = ARRAY_COUNT(sDebugOptions);
+        return sDebugOptions;
+    }
+
+    *count = ARRAY_COUNT(sMainOptions);
+    return sMainOptions;
+}
 
 //------------------------------------------------------------------------------
 // Option values <-> config
@@ -130,6 +168,7 @@ static s32 opt_get(s32 id) {
         case OPT_RETRO_MODE: return configRetroMode;
         case OPT_SHOW_FPS:   return configShowFPS;
         case OPT_HUD:        return !configHUD;
+        case OPT_DEBUG_FEATURES: return 0;
         case OPT_LEVEL_SELECT: return configLevelSelect;
         case OPT_DEBUG_INFO: return configDebugInfo;
 #ifdef TARGET_IOS
@@ -198,6 +237,10 @@ static void opt_cycle(s32 id, s32 dir) {
     const struct OptionDef *def = &sOptions[id];
     s32 value = opt_get(id) + dir;
 
+    if (def->numChoices < 2) {
+        return;
+    }
+
     if (value < 0) {
         value = def->numChoices - 1;
     } else if (value >= def->numChoices) {
@@ -246,7 +289,14 @@ static void opt_print(s16 x, s16 y, const char *str) {
 // it further on a device that cannot keep up. Show that number rather than
 // letting the menu claim a rate the game is not running at.
 static void opt_print_value(s16 x, s16 y, s32 id) {
-    const char *selected = sOptions[id].choices[opt_get(id)];
+    const struct OptionDef *def = &sOptions[id];
+    const char *selected;
+
+    if (def->numChoices == 0) {
+        opt_print(x, y, "OPEN");
+        return;
+    }
+    selected = def->choices[opt_get(id)];
 
 #ifdef HIGH_FPS_PC
     if (id == OPT_FRAME_CAP) {
@@ -260,7 +310,7 @@ static void opt_print_value(s16 x, s16 y, s32 id) {
         }
         if (chosen != actual) {
             // "AUTO 120", or "120 - 60" when the request could not be met
-            sprintf(text, chosen == 0 ? "%s %d" : "%s - %d", selected, actual);
+            snprintf(text, sizeof(text), chosen == 0 ? "%s %d" : "%s - %d", selected, actual);
             opt_print(x, y, text);
             return;
         }
@@ -271,6 +321,9 @@ static void opt_print_value(s16 x, s16 y, s32 id) {
 }
 
 static void optmenu_draw(void) {
+    const enum OptionId *pageOptions;
+    const char *title;
+    s32 count;
     s32 i;
 
 #ifdef TARGET_IOS
@@ -291,16 +344,20 @@ static void optmenu_draw(void) {
     gSPDisplayList(gDisplayListHead++, dl_ia_text_begin);
 
     gDPSetEnvColor(gDisplayListHead++, 255, 255, 255, 255);
-    opt_print(124, 192, "OPTIONS");
+    title = sMenuPage == OPT_PAGE_DEBUG ? "DEBUG FEATURES" : "OPTIONS";
+    opt_print(sMenuPage == OPT_PAGE_DEBUG ? 92 : 124, 192, title);
+
+    pageOptions = opt_page_options(&count);
 
     // Spacing is derived rather than fixed so that adding an option cannot
     // silently push the last row on top of the footer
-    s16 step = OPT_COUNT > 1 ? (s16) (OPT_LIST_TOP - OPT_LIST_BOTTOM) / (OPT_COUNT - 1) : OPT_ROW_MAX;
+    s16 step = count > 1 ? (s16) (OPT_LIST_TOP - OPT_LIST_BOTTOM) / (count - 1) : OPT_ROW_MAX;
     if (step > OPT_ROW_MAX) {
         step = OPT_ROW_MAX;
     }
 
-    for (i = 0; i < OPT_COUNT; i++) {
+    for (i = 0; i < count; i++) {
+        enum OptionId id = pageOptions[i];
         s16 y = OPT_LIST_TOP - i * step;
 
         if (i == sMenuSel) {
@@ -308,12 +365,18 @@ static void optmenu_draw(void) {
         } else {
             gDPSetEnvColor(gDisplayListHead++, 200, 200, 200, 255);
         }
-        opt_print(60, y, sOptions[i].label);
-        opt_print_value(190, y, i);
+        opt_print(60, y, sOptions[id].label);
+        opt_print_value(190, y, id);
     }
 
     gDPSetEnvColor(gDisplayListHead++, 160, 160, 160, 255);
-    opt_print(64, OPT_FOOTER_Y, "R BACK   A CHANGE");
+    if (sMenuPage == OPT_PAGE_DEBUG) {
+        opt_print(48, OPT_FOOTER_Y, "B BACK  R CLOSE  A CHANGE");
+    } else if (pageOptions[sMenuSel] == OPT_DEBUG_FEATURES) {
+        opt_print(64, OPT_FOOTER_Y, "R CLOSE  A OPEN");
+    } else {
+        opt_print(64, OPT_FOOTER_Y, "R CLOSE  A CHANGE");
+    }
 
     gSPDisplayList(gDisplayListHead++, dl_ia_text_end);
 }
@@ -333,6 +396,9 @@ static void optmenu_close(void) {
 }
 
 s32 optmenu_update_and_render(void) {
+    const enum OptionId *pageOptions;
+    enum OptionId selected;
+    s32 count;
     u16 pressed = gPlayer1Controller->buttonPressed;
     s16 stickY = gPlayer1Controller->rawStickY;
     s16 stickX = gPlayer1Controller->rawStickX;
@@ -340,32 +406,51 @@ s32 optmenu_update_and_render(void) {
     if (!sMenuOpen) {
         if (gMenuMode == MENU_MODE_RENDER_PAUSE_SCREEN && (pressed & R_TRIG)) {
             sMenuOpen = TRUE;
+            sMenuPage = OPT_PAGE_MAIN;
             sMenuSel = 0;
             sStickWasNeutral = FALSE;
         } else {
             return FALSE;
         }
     } else {
-        if (pressed & (R_TRIG | B_BUTTON | START_BUTTON)) {
+        if (pressed & (R_TRIG | START_BUTTON)) {
             optmenu_close();
+        } else if (pressed & B_BUTTON) {
+            if (sMenuPage == OPT_PAGE_DEBUG) {
+                sMenuPage = OPT_PAGE_MAIN;
+                sMenuSel = ARRAY_COUNT(sMainOptions) - 1;
+                sStickWasNeutral = FALSE;
+            } else {
+                optmenu_close();
+            }
         } else {
+            pageOptions = opt_page_options(&count);
+            selected = pageOptions[sMenuSel];
+
             if (stickY > -20 && stickY < 20 && stickX > -20 && stickX < 20
                 && !(pressed & (U_JPAD | D_JPAD | L_JPAD | R_JPAD))) {
                 sStickWasNeutral = TRUE;
             } else if (sStickWasNeutral) {
                 sStickWasNeutral = FALSE;
                 if (stickY > 40 || (pressed & U_JPAD)) {
-                    sMenuSel = sMenuSel == 0 ? OPT_COUNT - 1 : sMenuSel - 1;
+                    sMenuSel = sMenuSel == 0 ? count - 1 : sMenuSel - 1;
                 } else if (stickY < -40 || (pressed & D_JPAD)) {
-                    sMenuSel = (sMenuSel + 1) % OPT_COUNT;
+                    sMenuSel = (sMenuSel + 1) % count;
                 } else if (stickX < -40 || (pressed & L_JPAD)) {
-                    opt_cycle(sMenuSel, -1);
+                    opt_cycle(selected, -1);
                 } else if (stickX > 40 || (pressed & R_JPAD)) {
-                    opt_cycle(sMenuSel, 1);
+                    opt_cycle(selected, 1);
                 }
             }
             if (pressed & A_BUTTON) {
-                opt_cycle(sMenuSel, 1);
+                selected = pageOptions[sMenuSel];
+                if (selected == OPT_DEBUG_FEATURES) {
+                    sMenuPage = OPT_PAGE_DEBUG;
+                    sMenuSel = 0;
+                    sStickWasNeutral = FALSE;
+                } else {
+                    opt_cycle(selected, 1);
+                }
             }
         }
     }

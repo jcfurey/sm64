@@ -15,20 +15,33 @@
 #ifdef TARGET_IOS
 
 #include <SDL2/SDL.h>
+#include "fs_ios_storage.h"
 
 const char *fs_get_write_path(const char *filename) {
     static char path[1024];
-    static char *pref_path = NULL;
+    static char *legacy_path = NULL;
 
-    if (pref_path == NULL) {
-        pref_path = SDL_GetPrefPath("sm64", "sm64-port");
-        if (pref_path == NULL) {
-            // Last resort: current directory (matches desktop behavior)
-            return filename;
+    if (legacy_path == NULL) {
+        legacy_path = SDL_GetPrefPath("sm64", "sm64-port");
+    }
+
+    // File sharing only exposes Documents. Move files from SDL's historical
+    // Library/Application Support location the first time each one is used.
+    if (fs_ios_prepare_write_path(path, sizeof(path), filename, getenv("HOME"), legacy_path)) {
+        return path;
+    }
+
+    // If Documents is unavailable, preserve the old behavior rather than
+    // making an existing save appear to vanish.
+    if (legacy_path != NULL) {
+        int length = snprintf(path, sizeof(path), "%s%s", legacy_path, filename);
+        if (length >= 0 && (size_t) length < sizeof(path)) {
+            return path;
         }
     }
-    snprintf(path, sizeof(path), "%s%s", pref_path, filename);
-    return path;
+
+    // Last resort: current directory (matches desktop behavior).
+    return filename;
 }
 
 #else

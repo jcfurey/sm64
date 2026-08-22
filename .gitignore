@@ -42,7 +42,7 @@
 .vscode/*
 
 # General project-specific ignores
-__pycache__/*
+**/__pycache__/*
 doxygen/doxygen/*
 build/*
 *.dump
@@ -74,12 +74,8 @@ sm64config.txt
 !/assets/**/*custom*/**/*.bin
 
 # Built by tools/porttest/Makefile
-/tools/porttest/fs_atomic_test
-/tools/porttest/framerate_test
-/tools/porttest/touch_layout_test
-/tools/porttest/gfx_pool_test
+/tools/porttest/*_test
 /tools/porttest/gfx_pool_test_asan
-/tools/porttest/shader_gen_test
 /tools/porttest/gfx_bench
 /tools/porttest/shader-dump/
 /tools/porttest/*.o

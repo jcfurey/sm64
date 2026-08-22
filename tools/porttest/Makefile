@@ -9,7 +9,7 @@
 #   ./tools/porttest/gfx_bench 5000
 
 ROOT := ../..
-PROGRAMS := fs_atomic_test framerate_test touch_layout_test gfx_pool_test \
+PROGRAMS := fs_atomic_test fs_ios_storage_test framerate_test touch_layout_test gfx_pool_test \
             shader_gen_test gfx_bench
 
 CFLAGS := -O2 -g -Wall -Wextra -Wno-unused-parameter -std=gnu11 \
@@ -35,6 +35,9 @@ CXXFLAGS := $(subst -std=gnu11,-std=gnu++17,$(CFLAGS))
 all: $(PROGRAMS)
 
 fs_atomic_test: fs_atomic_test.c $(ROOT)/src/pc/fs.c
+	$(CC) $(CFLAGS) -o $@ $^
+
+fs_ios_storage_test: fs_ios_storage_test.c $(ROOT)/src/pc/fs_ios_storage.c
 	$(CC) $(CFLAGS) -o $@ $^
 
 framerate_test: framerate_test.c $(ROOT)/src/pc/framerate.c $(ROOT)/src/pc/configfile.c $(ROOT)/src/pc/fs.c
@@ -97,8 +100,10 @@ gfx_bench: gfx_bench.c $(ROOT)/src/pc/gfx/gfx_pc.c $(ROOT)/src/pc/gfx/gfx_dummy.
            $(ROOT)/src/pc/gfx/gfx_cc.c $(ROOT)/src/pc/configfile.c $(ROOT)/src/pc/fs.c
 	$(CC) $(CFLAGS) -o $@ $^ -lm
 
-check: fs_atomic_test framerate_test touch_layout_test gfx_pool_test shader_gen_test
+check: fs_atomic_test fs_ios_storage_test framerate_test touch_layout_test gfx_pool_test shader_gen_test
 	./fs_atomic_test
+	@echo
+	./fs_ios_storage_test
 	@echo
 	./framerate_test
 	@echo

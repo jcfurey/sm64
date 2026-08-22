@@ -21,6 +21,11 @@ renders correctly in the iPhone 17 Pro simulator at a steady 60 fps (30 Hz
 logic × 2 sub-frames); `tools/porttest` is green; 1,995 generated shaders pass
 their real compilers.
 
+The follow-up work after this handoff completed Lane 2: both iOS bundles now
+carry a full opaque icon set, indirect input is declared, and saves live in the
+file-sharing-visible `Documents` directory. An actual simulator launch showed
+the old config migrate there and no longer emitted SDL's indirect-input warning.
+
 **Not** verified: anything on physical hardware — no device was connected. The
 `jp` build has never been run here either; it needs `baserom.jp.z64`.
 
@@ -29,7 +34,7 @@ their real compilers.
 ```sh
 gmake TARGET_IOS=1 VERSION=us -j8                        # device .app + .ipa
 gmake TARGET_IOS=1 IOS_SDK=iphonesimulator VERSION=us -j8
-make -C tools/porttest check                             # 4 suites, no ROM needed
+make -C tools/porttest check                             # portable suites, no ROM needed
 make -C tools/porttest check-shaders                     # real compilers, macOS
 xcrun simctl install "iPhone 17 Pro" build/us_iossim/SM64-us.app
 xcrun simctl launch --console-pty "iPhone 17 Pro" com.sm64port.us
@@ -39,57 +44,37 @@ One-time: `./ios/build-sdl2.sh` and `IOS_SDK=iphonesimulator ./ios/build-sdl2.sh
 
 ---
 
-## Lane 2 — bundle and input plumbing
+## Lane 2 — bundle and input plumbing (completed)
 
-Small, self-contained, and each item is a defect a user would notice.
+The Makefile takes the lightweight bundle-resource route: eleven opaque PNGs
+under `ios/icons/` cover iPhone and iPad home-screen, Spotlight and Settings
+sizes, are copied into the app, and are named explicitly by `CFBundleIcons` and
+`CFBundleIcons~ipad`. The 1024 px source is kept beside them for future edits.
 
-### 2.1 The app has no icon
+`ios/Info.plist.in` now sets `UIApplicationSupportsIndirectInputEvents`,
+`UIFileSharingEnabled`, and `LSSupportsOpeningDocumentsInPlace` to real boolean
+values. The first removes SDL's launch warning and enables pointer input on the
+pre-iOS-17 versions the app still supports; the latter two expose `Documents`
+through Finder file sharing and the Files app.
 
-`build/us_ios/SM64-us.app` contains exactly `Info.plist`, `_CodeSignature` and
-`sm64`. Nothing else. It shows a blank tile on the home screen.
+That last part needed more than plist keys. SDL's `SDL_GetPrefPath` resolves to
+`Library/Application Support` on iOS, which file sharing does not expose.
+`src/pc/fs_ios_storage.c` now selects `<HOME>/Documents` and atomically moves an
+older save, config, or touch layout there on first use. If the move fails, the
+caller stays on the legacy path rather than making an existing save disappear.
+`fs_ios_storage_test` covers migration, destination precedence, path bounds and
+the missing-home fallback.
 
-The `$(IOS_APP)` rule in the Makefile writes the plist and copies the
-executable; there is no `actool` step, so an asset catalog would mean adding
-one. The lighter route is the legacy path — PNGs copied into the bundle and
-named by `CFBundleIconFiles` — which is enough for a sideloaded app and adds no
-new tool dependency. Decide which before starting; the asset-catalog route is
-the one Apple documents, the legacy route is the one that fits this Makefile.
+`gmake TARGET_IOS=1 [IOS_SDK=iphonesimulator] check-ios-bundle` builds the app
+and runs `tools/porttest/check-ios-bundle.py` against the result. It checks the
+three boolean values plus existence, dimensions and opaque RGB format for every
+declared icon. It also verifies the packaged executable contains the dedicated
+Debug Features screen and its two user-facing controls. This remains separate
+from portable `make -C tools/porttest check`, which still needs neither a ROM
+nor Xcode.
 
-### 2.2 `UIApplicationSupportsIndirectInputEvents` is missing
-
-The app reports this itself on every launch:
-
-```
-sm64[78787:1660933] You need UIApplicationSupportsIndirectInputEvents
-in your Info.plist for mouse support
-```
-
-Without it, trackpad and indirect pointer input are ignored — which matters on
-iPad and in the simulator. One boolean key in `ios/Info.plist.in`.
-
-### 2.3 Saves cannot leave the device
-
-`ios/Info.plist.in` sets neither `UIFileSharingEnabled` nor
-`LSSupportsOpeningDocumentsInPlace`, so the save file is sealed in the app
-container. For an app sideloaded with a free Apple ID — re-signed every seven
-days, and lost entirely if that lapses — there is no way to back a file up or
-move it to another device.
-
-`src/pc/fs.c` already writes saves atomically (`fs_atomic_test` covers the
-abandoned-write case), so exposing the directory does not introduce a
-torn-write risk.
-
-### Testing lane 2
-
-These are bundle properties, not runtime behaviour, so the natural check runs
-against the built `.app` and needs no device: parse the generated `Info.plist`,
-assert the required keys are present and correctly typed, and confirm every
-file named by `CFBundleIconFiles` exists at its declared pixel size. That turns
-"the icon silently stopped being copied" into a failure instead of a surprise
-on someone's home screen.
-
-It belongs beside `check` rather than inside it — `check` deliberately needs no
-ROM and no Xcode, and this needs a built bundle.
+The same change replaced `.gitignore`'s per-executable porttest list with
+`/tools/porttest/*_test`, so new test binaries no longer become tracked files.
 
 ---
 
@@ -173,12 +158,6 @@ audio backend.
 ---
 
 ## Smaller debt
-
-- **`.gitignore`'s porttest list is per-binary and has now bitten twice.**
-  Lines 77–83 name each test executable individually, so adding a test without
-  adding its line silently tracks a binary. It caught out `shader_gen_test` in
-  `a081e14` — the same mistake `3176de6` made with the `sm64tools` binaries.
-  A pattern, or a list generated from the Makefile's `PROGRAMS`, would end it.
 
 - **HLSL has no real-compiler coverage.** `check-shaders.sh` reports `d3d` as
   `SKIPPED` because no Homebrew formula provides `dxc` and Apple ships no HLSL

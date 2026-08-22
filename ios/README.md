@@ -46,6 +46,13 @@ yourself and do not distribute it.**
    - `SM64-<version>.app` — the app bundle
    - `sm64.<version>.ipa` — the same bundle packaged for sideloading
 
+   To verify the generated plist and every bundled icon without launching the
+   app, run:
+
+   ```
+   gmake TARGET_IOS=1 VERSION=us check-ios-bundle
+   ```
+
    The two versions use different bundle identifiers
    (`com.sm64port.us` / `com.sm64port.jp`), so both can be installed at the
    same time.
@@ -98,8 +105,9 @@ to go back to the default arrangement.
 ## In-game options menu
 
 Pause the game and press **R** to open the options menu (stick or D-pad to
-navigate, A or left/right to change a value, R/B/Start to close). Settings
-persist in the app's config file:
+navigate, A or left/right to change a value, and R or Start to close). In the
+Debug Features screen, B returns to the main options screen. Settings persist
+in the app's config file:
 
 - **Frame Rate** — Auto (match the display: 120 on ProMotion, 60 otherwise),
   or a fixed 30/60/90/120 cap. Game logic always runs at its native 30 Hz;
@@ -115,19 +123,27 @@ persist in the app's config file:
   pillarbox bars, 240-line rendering scaled up (Metal), and a 30 fps lock.
 - **Show FPS** — rendered-frames-per-second counter.
 - **HUD** — hide the heads-up display for clean screenshots.
-- **Level Select** — the debug level select the game has always contained
-  but never exposed. With it on, exiting a course from the pause menu leads
-  to the level select rather than back to the castle.
-- **Debug Info** — the game's built-in debug text overlay. (The profiler it
-  also enables reads zero everywhere: it times itself with `osGetTime`,
-  which the port stubs out.)
+- **Debug Features** — opens a dedicated screen for the game's user-facing
+  debug tools:
+  - **Level Select** — the debug level select the game has always contained
+    but never exposed. With it on, exiting a course from the pause menu leads
+    to the level select rather than back to the castle.
+  - **Debug Info** — the working built-in debug text overlay. The separate
+    profiler stays disabled because it times itself with `osGetTime`, which
+    this port stubs out, so every profiler bar would otherwise read empty.
 
-Save files and settings are stored in the app's sandbox and survive app
-updates (but not uninstalling). Both are written atomically — to a
-temporary file that is flushed to storage and then renamed into place — so
-being killed by the system mid-write cannot leave a truncated save behind.
-Settings are also flushed when the app is sent to the background, since iOS
-terminates suspended apps without running any exit handlers.
+Save files and settings are stored in the app's `Documents` directory and
+survive app updates (but not uninstalling). They are visible through Finder
+file sharing and the Files app, so they can be backed up before a sideloaded
+app expires or is removed. Builds made before this directory was exposed kept
+the same files under `Library/Application Support`; each file is moved into
+`Documents` automatically the first time it is used.
+
+Writes are atomic — they go to a temporary file that is flushed to storage and
+then renamed into place — so being killed by the system mid-write cannot leave
+a truncated save behind. Settings are also flushed when the app is sent to the
+background, since iOS terminates suspended apps without running any exit
+handlers.
 
 ## Frame pacing under load
 

@@ -242,7 +242,9 @@ void main_func(void) {
     atexit(save_config);
 
     gShowDebugText = configDebugInfo;
-    gShowProfiler = configDebugInfo;
+    // The profiler depends on osGetTime(), which this port stubs to zero.
+    // Keep it off even when the working debug-text overlay is persisted.
+    gShowProfiler = FALSE;
     gDebugLevelSelect = configLevelSelect;
 
 #ifdef TARGET_WEB
