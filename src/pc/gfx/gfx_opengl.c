@@ -26,6 +26,7 @@
 #endif
 
 #include "gfx_cc.h"
+#include "gfx_opengl_shader.h"
 #include "gfx_rendering_api.h"
 #include "../configfile.h"
 
@@ -109,213 +110,16 @@ static void gfx_opengl_load_shader(struct ShaderProgram *new_prg) {
     gfx_opengl_set_uniforms(new_prg);
 }
 
-static void append_str(char *buf, size_t *len, const char *str) {
-    while (*str != '\0') buf[(*len)++] = *str++;
-}
-
-static void append_line(char *buf, size_t *len, const char *str) {
-    while (*str != '\0') buf[(*len)++] = *str++;
-    buf[(*len)++] = '\n';
-}
-
-static const char *shader_item_to_str(uint32_t item, bool with_alpha, bool only_alpha, bool inputs_have_alpha, bool hint_single_element) {
-    if (!only_alpha) {
-        switch (item) {
-            default:
-            case SHADER_0:
-                return with_alpha ? "vec4(0.0, 0.0, 0.0, 0.0)" : "vec3(0.0, 0.0, 0.0)";
-            case SHADER_INPUT_1:
-                return with_alpha || !inputs_have_alpha ? "vInput1" : "vInput1.rgb";
-            case SHADER_INPUT_2:
-                return with_alpha || !inputs_have_alpha ? "vInput2" : "vInput2.rgb";
-            case SHADER_INPUT_3:
-                return with_alpha || !inputs_have_alpha ? "vInput3" : "vInput3.rgb";
-            case SHADER_INPUT_4:
-                return with_alpha || !inputs_have_alpha ? "vInput4" : "vInput4.rgb";
-            case SHADER_TEXEL0:
-                return with_alpha ? "texVal0" : "texVal0.rgb";
-            case SHADER_TEXEL0A:
-                return hint_single_element ? "texVal0.a" :
-                    (with_alpha ? "vec4(texVal0.a, texVal0.a, texVal0.a, texVal0.a)" : "vec3(texVal0.a, texVal0.a, texVal0.a)");
-            case SHADER_TEXEL1:
-                return with_alpha ? "texVal1" : "texVal1.rgb";
-        }
-    } else {
-        switch (item) {
-            default:
-            case SHADER_0:
-                return "0.0";
-            case SHADER_INPUT_1:
-                return "vInput1.a";
-            case SHADER_INPUT_2:
-                return "vInput2.a";
-            case SHADER_INPUT_3:
-                return "vInput3.a";
-            case SHADER_INPUT_4:
-                return "vInput4.a";
-            case SHADER_TEXEL0:
-                return "texVal0.a";
-            case SHADER_TEXEL0A:
-                return "texVal0.a";
-            case SHADER_TEXEL1:
-                return "texVal1.a";
-        }
-    }
-}
-
-static void append_formula(char *buf, size_t *len, uint8_t c[2][4], bool do_single, bool do_multiply, bool do_mix, bool with_alpha, bool only_alpha, bool opt_alpha) {
-    if (do_single) {
-        append_str(buf, len, shader_item_to_str(c[only_alpha][3], with_alpha, only_alpha, opt_alpha, false));
-    } else if (do_multiply) {
-        append_str(buf, len, shader_item_to_str(c[only_alpha][0], with_alpha, only_alpha, opt_alpha, false));
-        append_str(buf, len, " * ");
-        append_str(buf, len, shader_item_to_str(c[only_alpha][2], with_alpha, only_alpha, opt_alpha, true));
-    } else if (do_mix) {
-        append_str(buf, len, "mix(");
-        append_str(buf, len, shader_item_to_str(c[only_alpha][1], with_alpha, only_alpha, opt_alpha, false));
-        append_str(buf, len, ", ");
-        append_str(buf, len, shader_item_to_str(c[only_alpha][0], with_alpha, only_alpha, opt_alpha, false));
-        append_str(buf, len, ", ");
-        append_str(buf, len, shader_item_to_str(c[only_alpha][2], with_alpha, only_alpha, opt_alpha, true));
-        append_str(buf, len, ")");
-    } else {
-        append_str(buf, len, "(");
-        append_str(buf, len, shader_item_to_str(c[only_alpha][0], with_alpha, only_alpha, opt_alpha, false));
-        append_str(buf, len, " - ");
-        append_str(buf, len, shader_item_to_str(c[only_alpha][1], with_alpha, only_alpha, opt_alpha, false));
-        append_str(buf, len, ") * ");
-        append_str(buf, len, shader_item_to_str(c[only_alpha][2], with_alpha, only_alpha, opt_alpha, true));
-        append_str(buf, len, " + ");
-        append_str(buf, len, shader_item_to_str(c[only_alpha][3], with_alpha, only_alpha, opt_alpha, false));
-    }
-}
-
 static struct ShaderProgram *gfx_opengl_create_and_load_new_shader(uint32_t shader_id) {
     struct CCFeatures cc_features;
     gfx_cc_get_features(shader_id, &cc_features);
 
-    char vs_buf[2048];
-    char fs_buf[2048];
-    size_t vs_len = 0;
-    size_t fs_len = 0;
-    size_t num_floats = 4;
-
-    // Vertex shader
-#ifdef USE_GLES
-    // OpenGL ES 2.0 accepts GLSL ES 1.00 only
-    append_line(vs_buf, &vs_len, "#version 100");
-#else
-    append_line(vs_buf, &vs_len, "#version 110");
-#endif
-    append_line(vs_buf, &vs_len, "attribute vec4 aVtxPos;");
-    if (cc_features.used_textures[0] || cc_features.used_textures[1]) {
-        append_line(vs_buf, &vs_len, "attribute vec2 aTexCoord;");
-        append_line(vs_buf, &vs_len, "varying vec2 vTexCoord;");
-        num_floats += 2;
-    }
-    if (cc_features.opt_fog) {
-        append_line(vs_buf, &vs_len, "attribute vec4 aFog;");
-        append_line(vs_buf, &vs_len, "varying vec4 vFog;");
-        num_floats += 4;
-    }
-    for (int i = 0; i < cc_features.num_inputs; i++) {
-        vs_len += sprintf(vs_buf + vs_len, "attribute vec%d aInput%d;\n", cc_features.opt_alpha ? 4 : 3, i + 1);
-        vs_len += sprintf(vs_buf + vs_len, "varying vec%d vInput%d;\n", cc_features.opt_alpha ? 4 : 3, i + 1);
-        num_floats += cc_features.opt_alpha ? 4 : 3;
-    }
-    append_line(vs_buf, &vs_len, "void main() {");
-    if (cc_features.used_textures[0] || cc_features.used_textures[1]) {
-        append_line(vs_buf, &vs_len, "vTexCoord = aTexCoord;");
-    }
-    if (cc_features.opt_fog) {
-        append_line(vs_buf, &vs_len, "vFog = aFog;");
-    }
-    for (int i = 0; i < cc_features.num_inputs; i++) {
-        vs_len += sprintf(vs_buf + vs_len, "vInput%d = aInput%d;\n", i + 1, i + 1);
-    }
-    append_line(vs_buf, &vs_len, "gl_Position = aVtxPos;");
-    append_line(vs_buf, &vs_len, "}");
-
-    // Fragment shader
-#ifdef USE_GLES
-    append_line(fs_buf, &fs_len, "#version 100");
-    // GLSL ES 1.00 fragment shaders have no default float precision
-    append_line(fs_buf, &fs_len, "precision mediump float;");
-#else
-    append_line(fs_buf, &fs_len, "#version 110");
-#endif
-    if (cc_features.used_textures[0] || cc_features.used_textures[1]) {
-        append_line(fs_buf, &fs_len, "varying vec2 vTexCoord;");
-    }
-    if (cc_features.opt_fog) {
-        append_line(fs_buf, &fs_len, "varying vec4 vFog;");
-    }
-    for (int i = 0; i < cc_features.num_inputs; i++) {
-        fs_len += sprintf(fs_buf + fs_len, "varying vec%d vInput%d;\n", cc_features.opt_alpha ? 4 : 3, i + 1);
-    }
-    if (cc_features.used_textures[0]) {
-        append_line(fs_buf, &fs_len, "uniform sampler2D uTex0;");
-    }
-    if (cc_features.used_textures[1]) {
-        append_line(fs_buf, &fs_len, "uniform sampler2D uTex1;");
-    }
-
-    if (cc_features.opt_alpha && cc_features.opt_noise) {
-        append_line(fs_buf, &fs_len, "uniform int frame_count;");
-        append_line(fs_buf, &fs_len, "uniform int window_height;");
-
-        append_line(fs_buf, &fs_len, "float random(in vec3 value) {");
-        append_line(fs_buf, &fs_len, "    float random = dot(sin(value), vec3(12.9898, 78.233, 37.719));");
-        append_line(fs_buf, &fs_len, "    return fract(sin(random) * 143758.5453);");
-        append_line(fs_buf, &fs_len, "}");
-    }
-
-    append_line(fs_buf, &fs_len, "void main() {");
-
-    if (cc_features.used_textures[0]) {
-        append_line(fs_buf, &fs_len, "vec4 texVal0 = texture2D(uTex0, vTexCoord);");
-    }
-    if (cc_features.used_textures[1]) {
-        append_line(fs_buf, &fs_len, "vec4 texVal1 = texture2D(uTex1, vTexCoord);");
-    }
-
-    append_str(fs_buf, &fs_len, cc_features.opt_alpha ? "vec4 texel = " : "vec3 texel = ");
-    if (!cc_features.color_alpha_same && cc_features.opt_alpha) {
-        append_str(fs_buf, &fs_len, "vec4(");
-        append_formula(fs_buf, &fs_len, cc_features.c, cc_features.do_single[0], cc_features.do_multiply[0], cc_features.do_mix[0], false, false, true);
-        append_str(fs_buf, &fs_len, ", ");
-        append_formula(fs_buf, &fs_len, cc_features.c, cc_features.do_single[1], cc_features.do_multiply[1], cc_features.do_mix[1], true, true, true);
-        append_str(fs_buf, &fs_len, ")");
-    } else {
-        append_formula(fs_buf, &fs_len, cc_features.c, cc_features.do_single[0], cc_features.do_multiply[0], cc_features.do_mix[0], cc_features.opt_alpha, false, cc_features.opt_alpha);
-    }
-    append_line(fs_buf, &fs_len, ";");
-
-    if (cc_features.opt_texture_edge && cc_features.opt_alpha) {
-        append_line(fs_buf, &fs_len, "if (texel.a > 0.3) texel.a = 1.0; else discard;");
-    }
-    // TODO discard if alpha is 0?
-    if (cc_features.opt_fog) {
-        if (cc_features.opt_alpha) {
-            append_line(fs_buf, &fs_len, "texel = vec4(mix(texel.rgb, vFog.rgb, vFog.a), texel.a);");
-        } else {
-            append_line(fs_buf, &fs_len, "texel = mix(texel, vFog.rgb, vFog.a);");
-        }
-    }
-
-    if (cc_features.opt_alpha && cc_features.opt_noise) {
-        append_line(fs_buf, &fs_len, "texel.a *= floor(random(vec3(floor(gl_FragCoord.xy * (240.0 / float(window_height))), float(frame_count))) + 0.5);");
-    }
-
-    if (cc_features.opt_alpha) {
-        append_line(fs_buf, &fs_len, "gl_FragColor = texel;");
-    } else {
-        append_line(fs_buf, &fs_len, "gl_FragColor = vec4(texel, 1.0);");
-    }
-    append_line(fs_buf, &fs_len, "}");
-
-    vs_buf[vs_len] = '\0';
-    fs_buf[fs_len] = '\0';
+    char vs_buf[GFX_OPENGL_SHADER_BUF_SIZE];
+    char fs_buf[GFX_OPENGL_SHADER_BUF_SIZE];
+    size_t vs_len;
+    size_t fs_len;
+    size_t num_floats;
+    gfx_opengl_generate_shader_source(vs_buf, fs_buf, &vs_len, &fs_len, &cc_features, &num_floats);
 
     /*puts("Vertex shader:");
     puts(vs_buf);

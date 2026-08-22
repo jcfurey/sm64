@@ -79,7 +79,9 @@ sm64config.txt
 /tools/porttest/touch_layout_test
 /tools/porttest/gfx_pool_test
 /tools/porttest/gfx_pool_test_asan
+/tools/porttest/shader_gen_test
 /tools/porttest/gfx_bench
+/tools/porttest/shader-dump/
 /tools/porttest/*.o
 /tools/porttest/porttest_save.bin*
 /tools/porttest/sm64_touch_layout.txt*
