@@ -18,6 +18,14 @@ CFLAGS := -O2 -g -Wall -Wextra -Wno-unused-parameter -std=gnu11 \
           -fno-strict-aliasing -fwrapv \
           -I$(ROOT)/include -I$(ROOT)/src -I$(ROOT) -I$(ROOT)/src/pc -I$(ROOT)/src/pc/gfx
 
+# macOS host fixes. Two things a Linux host gets for free:
+#   - fortified bzero() and sprintf() expand to __builtin calls that collide
+#     with the plain declarations in include/PR/os_libc.h;
+#   - <SDL2/SDL.h> is not on the default include path under Homebrew.
+ifeq ($(shell uname -s),Darwin)
+  CFLAGS += -D_FORTIFY_SOURCE=0 $(shell pkg-config --cflags sdl2 2>/dev/null)
+endif
+
 all: $(PROGRAMS)
 
 fs_atomic_test: fs_atomic_test.c $(ROOT)/src/pc/fs.c

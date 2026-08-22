@@ -624,7 +624,9 @@ ifeq ($(TARGET_IOS),1)
       $(error SDL2 for iOS not found at $(IOS_SDL2_PATH) - build it first, see ios/README.md)
     endif
   endif
-  PLATFORM_CFLAGS  := -DTARGET_IOS $(IOS_TARGET_FLAGS) -I$(IOS_SDL2_PATH)/include
+  # Recent Apple SDKs fortify bzero() and sprintf() into macros expanding to
+  # __builtin calls, which collide with the declarations in PR/os_libc.h.
+  PLATFORM_CFLAGS  := -DTARGET_IOS -D_FORTIFY_SOURCE=0 $(IOS_TARGET_FLAGS) -I$(IOS_SDL2_PATH)/include
   ifeq ($(ENABLE_OPENGL),1)
     PLATFORM_CFLAGS += -DUSE_GLES
   endif
@@ -690,6 +692,25 @@ ifeq ($(PEDANTIC),1)
 endif
 
 ASFLAGS := -I include -I $(BUILD_DIR) $(foreach d,$(DEFINES),--defsym $(d))
+AS_DEPFLAGS = -MD $(BUILD_DIR)/$*.d
+AS_STDIN :=
+
+# macOS ships neither GNU as nor objcopy. Clang assembles the one .s file the
+# ports build -- sound/sequences/00_sound_player.s -- once aimed at an ELF
+# target, and Homebrew's binutils supplies the objcopy that cuts .rodata out of
+# the result. Three things make the substitution safe: the sequence macros emit
+# data a byte at a time, so nothing depends on the host's endianness or on the
+# ELF target chosen; the .if directives in seq_macros.inc test macro arguments
+# rather than symbols, so dropping --defsym changes nothing; and the source has
+# no .include left after the C preprocessor runs, so there are no assembler
+# dependencies to record (clang ignores -MD for assembler input regardless).
+ifeq ($(shell uname -s),Darwin)
+  AS := clang -target aarch64-unknown-linux-gnu -x assembler
+  ASFLAGS := -I include -I $(BUILD_DIR) -c
+  AS_DEPFLAGS :=
+  AS_STDIN := -
+  OBJCOPY := $(shell command -v objcopy 2>/dev/null || echo /opt/homebrew/opt/binutils/bin/objcopy)
+endif
 
 LDFLAGS := $(PLATFORM_LDFLAGS) $(GFX_LDFLAGS)
 
@@ -1222,7 +1243,7 @@ endif
 # Assemble assembly code
 $(BUILD_DIR)/%.o: %.s
 	$(call print,Assembling:,$<,$@)
-	$(V)$(CPP) $(CPPFLAGS) $< | $(AS) $(ASFLAGS) -MD $(BUILD_DIR)/$*.d -o $@
+	$(V)$(CPP) $(CPPFLAGS) $< | $(AS) $(ASFLAGS) $(AS_DEPFLAGS) -o $@ $(AS_STDIN)
 
 # Assemble RSP assembly code
 $(BUILD_DIR)/rsp/%.bin $(BUILD_DIR)/rsp/%_data.bin: rsp/%.s

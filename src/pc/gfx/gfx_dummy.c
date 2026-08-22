@@ -58,6 +58,25 @@ static struct timespec gfx_dummy_wm_timeadd(struct timespec t1, struct timespec 
     return t1;
 }
 
+// clock_nanosleep() is POSIX but absent on macOS, so sleep the remaining
+// interval relatively instead. Both spellings report EINTR the same way here:
+// as a return value, not through errno.
+#ifdef __APPLE__
+static int gfx_dummy_wm_sleep_until(const struct timespec *abs) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    struct timespec rel = gfx_dummy_wm_timediff(*abs, now);
+    if (rel.tv_sec < 0) {
+        return 0;
+    }
+    return nanosleep(&rel, NULL) == 0 ? 0 : errno;
+}
+#else
+static int gfx_dummy_wm_sleep_until(const struct timespec *abs) {
+    return clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, abs, NULL);
+}
+#endif
+
 static void gfx_dummy_wm_swap_buffers_end(void) {
     static struct timespec prev;
     struct timespec t;
@@ -66,7 +85,7 @@ static void gfx_dummy_wm_swap_buffers_end(void) {
     if (diff.tv_sec == 0 && diff.tv_nsec < 1000000000 / 30) {
         struct timespec add = {0, 1000000000 / 30};
         struct timespec next = gfx_dummy_wm_timeadd(prev, add);
-        while (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next, NULL) == EINTR) {
+        while (gfx_dummy_wm_sleep_until(&next) == EINTR) {
         }
         prev = next;
     } else {
