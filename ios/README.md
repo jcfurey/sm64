@@ -204,10 +204,11 @@ a truncated save behind. Settings are also flushed when the app is sent to the
 background, since iOS terminates suspended apps without running any exit
 handlers.
 
-The app uses an `Ambient` AVAudioSession: it respects the silent switch and
-allows music or podcasts from another app to continue. Incoming interruptions,
-backgrounding, output-route changes, and media-service resets pause or flush
-SDL's queued audio as appropriate so stale samples are not replayed on resume.
+The app asks SDL's CoreAudio backend to use an `Ambient` AVAudioSession: it
+respects the silent switch and allows music or podcasts from another app to
+continue. SDL remains the single owner of session activation and interruption
+handling; the app pauses or flushes its queued audio on background, route, and
+media-service transitions so stale samples are not replayed on resume.
 
 ## Frame pacing under load
 

@@ -57,13 +57,6 @@ Covers the native-drawable rectangle used for the game. Landscape stays
 full-screen, Retro Mode remains centered at 4:3 on wide displays, and iPhone
 and iPad portrait layouts fit a complete 4:3 panel below the top safe area.
 
-## `audio_session_policy_test`
-
-Exercises the platform-independent state machine beneath AVAudioSession:
-backgrounding, interruptions that may or may not resume, foregrounding, and
-route changes. The Objective-C binding is intentionally thin; all playback
-decisions remain testable without an Apple runtime.
-
 ## `controller_map_test`
 
 Covers default SDL-style gamepad mappings, triggers and right-stick virtual

@@ -692,7 +692,12 @@ void gfx_metal_present(void) {
             struct timespec rel = { (time_t) wait, (long) ((wait - (double) (time_t) wait) * 1e9) };
             while (nanosleep(&rel, &rel) == -1 && errno == EINTR) {
             }
-            now_s = next_present_s;
+            // A relative sleep can overshoot when the host is busy. Measure
+            // where we actually woke rather than pretending the deadline was
+            // hit; otherwise late frames bank time and the next iterations
+            // arrive in a burst, disturbing both motion and audio queuing.
+            clock_gettime(CLOCK_MONOTONIC, &ts);
+            now_s = (double) ts.tv_sec + (double) ts.tv_nsec / 1e9;
         }
         // A stall longer than a frame (a level load) must not bank credit and
         // come back as a burst of catch-up frames, so restart the schedule

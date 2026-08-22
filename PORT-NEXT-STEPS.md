@@ -41,10 +41,10 @@ Portrait now presents the complete 4:3 game frame below the top safe area and
 uses the remaining height as a control deck instead of center-cropping the
 scene. Touch buttons provide optional light haptics and can hide automatically
 while a controller is connected. A dedicated controller screen remaps every
-gameplay button and persists validated bindings. The audio layer now has an
-explicit Ambient AVAudioSession policy with interruption, route-change, media
-reset, and background handling. All of those decisions have ROM-free tests,
-which also run in GitHub Actions.
+gameplay button and persists validated bindings. SDL's CoreAudio backend owns
+the Ambient AVAudioSession and interruption handling, while the app flushes or
+pauses queued audio for route, media-reset, and background transitions. The
+ROM-free platform tests also run in GitHub Actions.
 
 **Not** verified: anything on physical hardware — no device was connected. The
 `jp` build has never been run here either; it needs `baserom.jp.z64`.
@@ -128,12 +128,11 @@ Lifecycle is already handled. `src/pc/gfx/gfx_sdl2.c` responds to
 `framerate_reset()` discards pacing history on resume, so measurements taken
 across a suspension do not distort the backoff.
 
-`ios_support.mm` deliberately selects `Ambient`, so the game respects the
-silent switch and mixes with existing audio. It observes interruptions, route
-changes, and media-service resets; the existing SDL lifecycle path reports
-background and foreground transitions into the same state machine. The pure C
-policy is covered by `audio_session_policy_test`, while the Objective-C binding
-is kept to category setup, notifications, and applying the policy decision.
+`ios_support.mm` sets SDL's audio-category hint to `Ambient` before the CoreAudio
+device opens, so the game respects the silent switch and mixes with existing
+audio without creating a second AVAudioSession owner. SDL handles interruption
+notifications, while the app lifecycle pauses the queued device and the thin
+UIKit binding flushes it after route changes or media-service resets.
 
 ---
 

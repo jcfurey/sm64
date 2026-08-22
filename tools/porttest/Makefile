@@ -9,8 +9,8 @@
 #   ./tools/porttest/gfx_bench 5000
 
 ROOT := ../..
-PROGRAMS := fs_atomic_test fs_ios_storage_test framerate_test audio_session_policy_test \
-            viewport_layout_test controller_map_test touch_layout_test gfx_pool_test \
+PROGRAMS := fs_atomic_test fs_ios_storage_test framerate_test viewport_layout_test \
+            controller_map_test touch_layout_test gfx_pool_test \
             shader_gen_test gfx_bench
 
 CFLAGS := -O2 -g -Wall -Wextra -Wno-unused-parameter -std=gnu11 \
@@ -45,9 +45,6 @@ framerate_test: framerate_test.c $(ROOT)/src/pc/framerate.c $(ROOT)/src/pc/confi
 	$(CC) $(CFLAGS) -o $@ $^
 
 viewport_layout_test: viewport_layout_test.c $(ROOT)/src/pc/gfx/gfx_viewport.c
-	$(CC) $(CFLAGS) -o $@ $^
-
-audio_session_policy_test: audio_session_policy_test.c $(ROOT)/src/pc/audio/audio_session_policy.c
 	$(CC) $(CFLAGS) -o $@ $^
 
 controller_map_test: controller_map_test.c $(ROOT)/src/pc/controller/controller_gamepad.c \
@@ -111,14 +108,12 @@ gfx_bench: gfx_bench.c $(ROOT)/src/pc/gfx/gfx_pc.c $(ROOT)/src/pc/gfx/gfx_viewpo
            $(ROOT)/src/pc/gfx/gfx_cc.c $(ROOT)/src/pc/configfile.c $(ROOT)/src/pc/fs.c
 	$(CC) $(CFLAGS) -o $@ $^ -lm
 
-check: fs_atomic_test fs_ios_storage_test framerate_test audio_session_policy_test viewport_layout_test controller_map_test touch_layout_test gfx_pool_test shader_gen_test
+check: fs_atomic_test fs_ios_storage_test framerate_test viewport_layout_test controller_map_test touch_layout_test gfx_pool_test shader_gen_test
 	./fs_atomic_test
 	@echo
 	./fs_ios_storage_test
 	@echo
 	./framerate_test
-	@echo
-	./audio_session_policy_test
 	@echo
 	./viewport_layout_test
 	@echo
