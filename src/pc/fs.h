@@ -27,5 +27,7 @@ bool fs_write_file_atomic(const char *path, const void *data, size_t size);
 // destination is left untouched. Do not fclose the stream yourself.
 FILE *fs_open_atomic(const char *path);
 bool fs_close_atomic(FILE *file, const char *path);
+// Closes and removes an uncommitted temporary stream after a write failure.
+void fs_abort_atomic(FILE *file, const char *path);
 
 #endif

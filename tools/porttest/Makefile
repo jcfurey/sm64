@@ -9,6 +9,7 @@
 #   ./tools/porttest/gfx_bench 5000
 
 ROOT := ../..
+PYTHON ?= python3
 PROGRAMS := fs_atomic_test fs_ios_storage_test framerate_test viewport_layout_test \
             controller_map_test touch_layout_test gfx_pool_test \
             shader_gen_test gfx_bench
@@ -100,8 +101,11 @@ gfx_opengl_shader_gles.o: $(GFX)/gfx_opengl_shader.c
 gfx_direct3d_common.o: $(GFX)/gfx_direct3d_common.cpp
 	$(CXX) $(CXXFLAGS) -DENABLE_DX11 -c -o $@ $<
 
+gfx_cc_shader.o: $(GFX)/gfx_cc.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
 shader_gen_test: shader_gen_test.o gfx_metal_shader.o gfx_opengl_shader.o \
-                 gfx_opengl_shader_gles.o gfx_direct3d_common.o $(GFX)/gfx_cc.c
+		         gfx_opengl_shader_gles.o gfx_direct3d_common.o gfx_cc_shader.o
 	$(CXX) $(CXXFLAGS) -o $@ $^
 
 gfx_bench: gfx_bench.c $(ROOT)/src/pc/gfx/gfx_pc.c $(ROOT)/src/pc/gfx/gfx_viewport.c $(ROOT)/src/pc/gfx/gfx_dummy.c \
@@ -124,6 +128,26 @@ check: fs_atomic_test fs_ios_storage_test framerate_test viewport_layout_test co
 	./gfx_pool_test
 	@echo
 	./shader_gen_test
+	$(PYTHON) check-options-menu.py
+
+SANITIZER_FLAGS := -O1 -fsanitize=address,undefined -fno-omit-frame-pointer
+SANITIZED_CFLAGS := $(filter-out -O2,$(CFLAGS)) $(SANITIZER_FLAGS)
+SANITIZED_CXXFLAGS := $(subst -std=gnu11,-std=gnu++17,$(SANITIZED_CFLAGS))
+
+check-sanitize:
+	$(MAKE) clean
+	ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 \
+	  $(MAKE) CFLAGS="$(SANITIZED_CFLAGS)" CXXFLAGS="$(SANITIZED_CXXFLAGS)" check
+	$(MAKE) gfx_command_fuzz_smoke
+	ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 ./gfx_command_fuzz_smoke 2000
+
+gfx_command_fuzz: gfx_command_fuzz.c $(GFX_SRCS)
+	$(CC) $(filter-out -O2,$(CFLAGS)) -O1 -fsanitize=fuzzer,address,undefined \
+	    -fno-omit-frame-pointer -o $@ $^ -lm
+
+gfx_command_fuzz_smoke: gfx_command_fuzz.c $(GFX_SRCS)
+	$(CC) $(filter-out -O2,$(CFLAGS)) $(SANITIZER_FLAGS) -DSM64_STANDALONE_FUZZ \
+	    -o $@ $^ -lm
 
 # Puts the generated shaders through each backend's real compiler rather than
 # the type rules shader_gen_test applies. Kept out of `check`, which needs no
@@ -136,9 +160,9 @@ check-shaders: shader_gen_test
 	./check-shaders.sh $(SHADER_DUMP_DIR) $(SHADER_LIMIT)
 
 clean:
-	$(RM) $(PROGRAMS) gfx_pool_test_asan *.o porttest_save.bin porttest_save.bin.tmp \
+	$(RM) $(PROGRAMS) gfx_pool_test_asan gfx_command_fuzz gfx_command_fuzz_smoke *.o porttest_save.bin porttest_save.bin.tmp \
 	      controller_map_config.txt controller_map_config.txt.tmp \
 	      sm64_touch_layout.txt sm64_touch_layout.txt.tmp
 	$(RM) -r $(SHADER_DUMP_DIR)
 
-.PHONY: all check check-shaders clean
+.PHONY: all check check-sanitize check-shaders clean

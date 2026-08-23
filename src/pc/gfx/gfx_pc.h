@@ -9,6 +9,9 @@ struct GfxWindowManagerAPI;
 struct GfxDimensions {
     uint32_t width, height;
     float aspect_ratio;
+    // Unsafe margins expressed in the game's 240-unit-high coordinate space.
+    // The world can render behind these margins; edge-anchored UI should not.
+    float safe_left, safe_top, safe_right, safe_bottom;
 };
 
 extern struct GfxDimensions gfx_current_dimensions;

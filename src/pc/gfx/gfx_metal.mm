@@ -18,6 +18,7 @@
 #import <QuartzCore/CAMetalLayer.h>
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <time.h>
 #include <errno.h>
 #include <string.h>
@@ -135,6 +136,11 @@ static_assert(sizeof(mtl.shader_program_pool) / sizeof(mtl.shader_program_pool[0
 // Pipeline and state helpers
 //==============================================================================
 
+static void metal_fatal(const char *message) {
+    fprintf(stderr, "Fatal Metal renderer error: %s\n", message);
+    abort();
+}
+
 static id<MTLRenderPipelineState> create_pipeline(id<MTLFunction> vs, id<MTLFunction> fs, bool blend) {
     MTLRenderPipelineDescriptor *desc = [[MTLRenderPipelineDescriptor alloc] init];
     desc.vertexFunction = vs;
@@ -234,6 +240,9 @@ static void ensure_depth_texture(void) {
 #endif
     desc.usage = MTLTextureUsageRenderTarget;
     mtl.depth_texture = [mtl.device newTextureWithDescriptor:desc];
+    if (mtl.depth_texture == nil) {
+        metal_fatal("could not allocate the depth buffer");
+    }
 }
 
 // Allocates space for one draw's vertex data in this frame's arena and
@@ -251,7 +260,12 @@ static id<MTLBuffer> upload_vertices(const float *data, size_t num_bytes, size_t
             mtl.current_vertex_buffer++;
         }
         while ((NSUInteger) mtl.current_vertex_buffer >= pool.count) {
-            [pool addObject:[mtl.device newBufferWithLength:needed options:MTLResourceStorageModeShared]];
+            id<MTLBuffer> new_buffer = [mtl.device newBufferWithLength:needed
+                                                               options:MTLResourceStorageModeShared];
+            if (new_buffer == nil) {
+                metal_fatal("could not allocate a vertex buffer");
+            }
+            [pool addObject:new_buffer];
         }
         offset = 0;
     }
@@ -272,6 +286,7 @@ static bool gfx_metal_z_is_from_0_to_1(void) {
 }
 
 static void gfx_metal_unload_shader(struct ShaderProgram *old_prg) {
+    (void) old_prg;
 }
 
 static void gfx_metal_load_shader(struct ShaderProgram *new_prg) {
@@ -293,6 +308,9 @@ static struct ShaderProgram *gfx_metal_create_and_load_new_shader(uint32_t shade
         // Keep the reported vertex layout intact either way: gfx_pc.c has
         // already decided the stride from these same combiner features
         prg->pipeline = build_fallback_pipeline(num_floats, cc_features.opt_alpha);
+        if (prg->pipeline == nil) {
+            metal_fatal("could not create either the generated or fallback shader pipeline");
+        }
     }
     prg->num_inputs = cc_features.num_inputs;
     prg->num_floats = num_floats;
@@ -341,6 +359,9 @@ static void gfx_metal_upload_texture(const uint8_t *rgba32_buf, int width, int h
                                                           height:height
                                                        mipmapped:NO];
     id<MTLTexture> texture = [mtl.device newTextureWithDescriptor:desc];
+    if (texture == nil) {
+        metal_fatal("could not allocate a texture");
+    }
     [texture replaceRegion:MTLRegionMake2D(0, 0, width, height)
                mipmapLevel:0
                  withBytes:rgba32_buf
@@ -361,7 +382,11 @@ static void gfx_metal_set_sampler_parameters(int tile, bool linear_filter, uint3
     desc.magFilter = linear_filter ? MTLSamplerMinMagFilterLinear : MTLSamplerMinMagFilterNearest;
     desc.sAddressMode = gfx_cm_to_metal(cms);
     desc.tAddressMode = gfx_cm_to_metal(cmt);
-    mtl.samplers[mtl.current_texture_ids[tile]] = [mtl.device newSamplerStateWithDescriptor:desc];
+    id<MTLSamplerState> sampler = [mtl.device newSamplerStateWithDescriptor:desc];
+    if (sampler == nil) {
+        metal_fatal("could not create a sampler state");
+    }
+    mtl.samplers[mtl.current_texture_ids[tile]] = sampler;
 }
 
 static void gfx_metal_set_depth_test(bool depth_test) {
@@ -416,6 +441,7 @@ static void gfx_metal_set_scissor(int x, int y, int width, int height) {
 }
 
 static void gfx_metal_set_use_alpha(bool use_alpha) {
+    (void) use_alpha;
     // Baked into the pipeline state from the shader features
 }
 
@@ -472,7 +498,13 @@ static void gfx_metal_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t
 
 static void gfx_metal_init(void) {
     mtl.layer = (__bridge CAMetalLayer *) gfx_sdl_get_metal_layer();
+    if (mtl.layer == nil) {
+        metal_fatal("SDL did not provide a CAMetalLayer");
+    }
     mtl.device = MTLCreateSystemDefaultDevice();
+    if (mtl.device == nil) {
+        metal_fatal("this device does not provide a Metal device");
+    }
     mtl.layer.device = mtl.device;
     mtl.layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
     mtl.layer.framebufferOnly = YES;
@@ -482,12 +514,24 @@ static void gfx_metal_init(void) {
     mtl.layer.maximumDrawableCount = 2;
 
     mtl.queue = [mtl.device newCommandQueue];
+    if (mtl.queue == nil) {
+        metal_fatal("could not create a command queue");
+    }
     mtl.frame_semaphore = dispatch_semaphore_create(MAX_FRAMES_IN_FLIGHT);
+    if (mtl.frame_semaphore == NULL) {
+        metal_fatal("could not create the frame semaphore");
+    }
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         mtl.vertex_buffers[i] = [[NSMutableArray alloc] init];
+        if (mtl.vertex_buffers[i] == nil) {
+            metal_fatal("could not create a vertex-buffer pool");
+        }
     }
     mtl.textures = [[NSMutableArray alloc] init];
     mtl.samplers = [[NSMutableArray alloc] init];
+    if (mtl.textures == nil || mtl.samplers == nil) {
+        metal_fatal("could not create the texture cache");
+    }
 
     for (int test = 0; test < 2; test++) {
         for (int write = 0; write < 2; write++) {
@@ -495,6 +539,9 @@ static void gfx_metal_init(void) {
             desc.depthCompareFunction = test ? MTLCompareFunctionLessEqual : MTLCompareFunctionAlways;
             desc.depthWriteEnabled = write ? YES : NO;
             mtl.depth_states[test][write] = [mtl.device newDepthStencilStateWithDescriptor:desc];
+            if (mtl.depth_states[test][write] == nil) {
+                metal_fatal("could not create a depth-stencil state");
+            }
         }
     }
 }
@@ -561,6 +608,10 @@ static void gfx_metal_start_frame(void) {
     ensure_depth_texture();
 
     mtl.command_buffer = [mtl.queue commandBuffer];
+    if (mtl.command_buffer == nil) {
+        dispatch_semaphore_signal(mtl.frame_semaphore);
+        metal_fatal("could not create a command buffer");
+    }
 
     MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
     pass.colorAttachments[0].texture = mtl.drawable.texture;
@@ -573,6 +624,10 @@ static void gfx_metal_start_frame(void) {
     pass.depthAttachment.clearDepth = 1.0;
 
     mtl.encoder = [mtl.command_buffer renderCommandEncoderWithDescriptor:pass];
+    if (mtl.encoder == nil) {
+        dispatch_semaphore_signal(mtl.frame_semaphore);
+        metal_fatal("could not create a render command encoder");
+    }
     [mtl.encoder setCullMode:MTLCullModeNone];
     [mtl.encoder setTriangleFillMode:(configViewMode == 1 ? MTLTriangleFillModeLines
                                                           : MTLTriangleFillModeFill)];
@@ -712,6 +767,7 @@ void gfx_metal_present(void) {
     [mtl.command_buffer presentDrawable:mtl.drawable afterMinimumDuration:1.0 / render_fps];
 #endif
     [mtl.command_buffer addCompletedHandler:^(id<MTLCommandBuffer> cb) {
+        (void) cb;
         dispatch_semaphore_signal(mtl.frame_semaphore);
     }];
     [mtl.command_buffer commit];

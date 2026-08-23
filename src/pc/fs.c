@@ -7,6 +7,7 @@
 
 #if defined(_WIN32) || defined(_WIN64)
 #include <io.h>
+#include <windows.h>
 #else
 #include <unistd.h>
 #include <fcntl.h>
@@ -132,15 +133,16 @@ static void fs_sync_parent_dir(const char *path) {
 // Moves the completed temporary file over the destination
 static bool fs_commit_tmp(const char *tmp_path, const char *path) {
 #if defined(_WIN32) || defined(_WIN64)
-    // Windows rename() fails when the destination exists. This unlink-then-
-    // rename is not atomic, but it is no worse than the truncating write it
-    // replaces, and the data is already safely on disk in the temporary file.
-    remove(path);
-#endif
+    if (!MoveFileExA(tmp_path, path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        remove(tmp_path);
+        return false;
+    }
+#else
     if (rename(tmp_path, path) != 0) {
         remove(tmp_path);
         return false;
     }
+#endif
     fs_sync_parent_dir(path);
     return true;
 }
@@ -175,6 +177,17 @@ bool fs_close_atomic(FILE *file, const char *path) {
         return false;
     }
     return fs_commit_tmp(tmp_path, path);
+}
+
+void fs_abort_atomic(FILE *file, const char *path) {
+    char tmp_path[1024];
+
+    if (file != NULL) {
+        fclose(file);
+    }
+    if (fs_build_tmp_path(tmp_path, sizeof(tmp_path), path)) {
+        remove(tmp_path);
+    }
 }
 
 bool fs_write_file_atomic(const char *path, const void *data, size_t size) {

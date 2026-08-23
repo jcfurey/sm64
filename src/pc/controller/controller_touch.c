@@ -12,6 +12,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #include <SDL2/SDL.h>
@@ -256,6 +257,15 @@ void touch_set_screen_size(int width, int height) {
 static struct Finger *find_finger(long long id) {
     for (int i = 0; i < MAX_FINGERS; i++) {
         if (fingers[i].active && fingers[i].id == id) {
+            return &fingers[i];
+        }
+    }
+    return NULL;
+}
+
+static struct Finger *find_stick_finger(void) {
+    for (int i = 0; i < MAX_FINGERS; i++) {
+        if (fingers[i].active && fingers[i].role == ROLE_STICK) {
             return &fingers[i];
         }
     }
@@ -511,7 +521,8 @@ void touch_down(long long finger_id, float x, float y) {
         float py = y * (float) screen_height;
         float sx = (px - (float) safe_left) / (float) safe_width();
         float sy = (py - (float) safe_top) / (float) safe_height();
-        if (sx >= 0.0f && sx <= 1.0f && sy >= 0.0f && sy <= 1.0f
+        if (find_stick_finger() == NULL
+            && sx >= 0.0f && sx <= 1.0f && sy >= 0.0f && sy <= 1.0f
             && sx < STICK_ZONE_X && sy > STICK_ZONE_Y) {
             float range = STICK_RANGE * control_unit();
             float min_x = (float) safe_left + range;
@@ -619,6 +630,7 @@ static int overlay_num_verts;
 static GLuint overlay_program;
 static GLuint overlay_vbo;
 static bool overlay_inited;
+static bool overlay_failed;
 
 static const char overlay_vs[] =
     "#version 100\n"
@@ -640,22 +652,51 @@ static const char overlay_fs[] =
 
 static GLuint overlay_compile_shader(GLenum type, const char *src) {
     GLuint shader = glCreateShader(type);
+    GLint compiled = GL_FALSE;
     glShaderSource(shader, 1, &src, NULL);
     glCompileShader(shader);
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
+    if (compiled != GL_TRUE) {
+        char log[1024];
+        GLsizei length = 0;
+        glGetShaderInfoLog(shader, sizeof(log), &length, log);
+        fprintf(stderr, "Touch overlay shader compilation failed: %.*s\n",
+                (int) length, log);
+        glDeleteShader(shader);
+        return 0;
+    }
     return shader;
 }
 
 static void overlay_init(void) {
     GLuint vs = overlay_compile_shader(GL_VERTEX_SHADER, overlay_vs);
     GLuint fs = overlay_compile_shader(GL_FRAGMENT_SHADER, overlay_fs);
+    GLint linked = GL_FALSE;
+    if (vs == 0 || fs == 0) {
+        glDeleteShader(vs);
+        glDeleteShader(fs);
+        overlay_failed = true;
+        return;
+    }
     overlay_program = glCreateProgram();
     glAttachShader(overlay_program, vs);
     glAttachShader(overlay_program, fs);
     glBindAttribLocation(overlay_program, 0, "aPos");
     glBindAttribLocation(overlay_program, 1, "aColor");
     glLinkProgram(overlay_program);
+    glGetProgramiv(overlay_program, GL_LINK_STATUS, &linked);
     glDeleteShader(vs);
     glDeleteShader(fs);
+    if (linked != GL_TRUE) {
+        char log[1024];
+        GLsizei length = 0;
+        glGetProgramInfoLog(overlay_program, sizeof(log), &length, log);
+        fprintf(stderr, "Touch overlay program link failed: %.*s\n", (int) length, log);
+        glDeleteProgram(overlay_program);
+        overlay_program = 0;
+        overlay_failed = true;
+        return;
+    }
 
     glGenBuffers(1, &overlay_vbo);
     overlay_inited = true;
@@ -877,11 +918,16 @@ void touch_render_overlay(int width, int height) {
         return;
     }
 
-    if (!overlay_inited) {
+    if (!overlay_inited && !overlay_failed) {
         overlay_init();
+    }
+    if (!overlay_inited) {
+        return;
     }
 
     GLint prev_program, prev_array_buffer, prev_viewport[4];
+    GLint prev_blend_src_rgb, prev_blend_dst_rgb, prev_blend_src_alpha, prev_blend_dst_alpha;
+    GLint prev_blend_equation_rgb, prev_blend_equation_alpha;
     struct SavedAttrib prev_attrib[2];
     GLboolean prev_depth_test = glIsEnabled(GL_DEPTH_TEST);
     GLboolean prev_scissor = glIsEnabled(GL_SCISSOR_TEST);
@@ -889,12 +935,20 @@ void touch_render_overlay(int width, int height) {
     glGetIntegerv(GL_CURRENT_PROGRAM, &prev_program);
     glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prev_array_buffer);
     glGetIntegerv(GL_VIEWPORT, prev_viewport);
+    glGetIntegerv(GL_BLEND_SRC_RGB, &prev_blend_src_rgb);
+    glGetIntegerv(GL_BLEND_DST_RGB, &prev_blend_dst_rgb);
+    glGetIntegerv(GL_BLEND_SRC_ALPHA, &prev_blend_src_alpha);
+    glGetIntegerv(GL_BLEND_DST_ALPHA, &prev_blend_dst_alpha);
+    glGetIntegerv(GL_BLEND_EQUATION_RGB, &prev_blend_equation_rgb);
+    glGetIntegerv(GL_BLEND_EQUATION_ALPHA, &prev_blend_equation_alpha);
     save_attrib(0, &prev_attrib[0]);
     save_attrib(1, &prev_attrib[1]);
 
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_SCISSOR_TEST);
     glEnable(GL_BLEND);
+    glBlendEquation(GL_FUNC_ADD);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glViewport(0, 0, screen_width, screen_height);
 
     glUseProgram(overlay_program);
@@ -912,6 +966,9 @@ void touch_render_overlay(int width, int height) {
     restore_attrib(1, &prev_attrib[1]);
     glBindBuffer(GL_ARRAY_BUFFER, prev_array_buffer);
     glUseProgram(prev_program);
+    glBlendEquationSeparate(prev_blend_equation_rgb, prev_blend_equation_alpha);
+    glBlendFuncSeparate(prev_blend_src_rgb, prev_blend_dst_rgb,
+                        prev_blend_src_alpha, prev_blend_dst_alpha);
     glViewport(prev_viewport[0], prev_viewport[1], prev_viewport[2], prev_viewport[3]);
     if (prev_depth_test) {
         glEnable(GL_DEPTH_TEST);

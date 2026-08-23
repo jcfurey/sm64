@@ -20,6 +20,11 @@ SDL2_VERSION="${SDL2_VERSION:-2.30.7}"
 IOS_MIN_VERSION="${IOS_MIN_VERSION:-14.0}"
 IOS_SDK="${IOS_SDK:-iphoneos}"
 
+case "$SDL2_VERSION" in
+    2.30.7) SDL2_SHA256="2508c80438cd5ff3bbeb8fe36b8f3ce7805018ff30303010b61b03bb83ab9694" ;;
+    *) echo "No authenticated SDL2 archive checksum is recorded for $SDL2_VERSION" >&2; exit 1 ;;
+esac
+
 case "$IOS_SDK" in
     iphoneos)        PREFIX_NAME="SDL2" ;;
     iphonesimulator) PREFIX_NAME="SDL2-simulator" ;;
@@ -36,8 +41,16 @@ cd "$WORK_DIR"
 TARBALL="SDL2-$SDL2_VERSION.tar.gz"
 if [ ! -f "$TARBALL" ]; then
     echo "Downloading SDL2 $SDL2_VERSION..."
-    curl -fLo "$TARBALL" \
+    curl --proto '=https' --tlsv1.2 --retry 3 -fLo "$TARBALL" \
         "https://github.com/libsdl-org/SDL/releases/download/release-$SDL2_VERSION/SDL2-$SDL2_VERSION.tar.gz"
+fi
+
+ACTUAL_SHA256="$(shasum -a 256 "$TARBALL" | awk '{print $1}')"
+if [ "$ACTUAL_SHA256" != "$SDL2_SHA256" ]; then
+    echo "SDL2 archive checksum mismatch for $TARBALL" >&2
+    echo "Expected: $SDL2_SHA256" >&2
+    echo "Actual:   $ACTUAL_SHA256" >&2
+    exit 1
 fi
 
 if [ ! -d "SDL2-$SDL2_VERSION" ]; then

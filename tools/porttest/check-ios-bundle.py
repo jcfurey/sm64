@@ -115,6 +115,16 @@ def check_debug_screen(bundle: Path, info: dict[str, object]) -> None:
             fail(f"user-facing debug screen text {text!r} is absent from the executable")
 
 
+def check_modern_app_icon(bundle: Path, info: dict[str, object]) -> None:
+    for key in ("CFBundleIcons", "CFBundleIcons~ipad"):
+        icons = info.get(key)
+        primary = icons.get("CFBundlePrimaryIcon") if isinstance(icons, dict) else None
+        if not isinstance(primary, dict) or primary.get("CFBundleIconName") != "AppIcon":
+            fail(f"{key}.CFBundlePrimaryIcon must select the modern AppIcon asset")
+    if not (bundle / "Assets.car").is_file():
+        fail("the compiled AppIcon asset catalog is absent from the bundle")
+
+
 def check_scene_manifest(info: dict[str, object]) -> None:
     manifest = info.get("UIApplicationSceneManifest")
     if not isinstance(manifest, dict):
@@ -170,17 +180,20 @@ def main() -> None:
 
     if info.get("UIDeviceFamily") != [1, 2]:
         fail("UIDeviceFamily must support both iPhone (1) and iPad (2)")
+    if info.get("UIRequiresFullScreen") is True:
+        fail("UIRequiresFullScreen must not disable iPad multitasking and Stage Manager")
 
     check_icon_set(bundle, info, "CFBundleIcons", IPHONE_ICONS)
     check_icon_set(bundle, info, "CFBundleIcons~ipad", IPAD_ICONS)
+    check_modern_app_icon(bundle, info)
     check_scene_manifest(info)
     check_orientations(info)
     check_debug_screen(bundle, info)
 
     unique_icons = len(set(IPHONE_ICONS) | set(IPAD_ICONS))
     print(
-        f"iOS bundle: UIScene lifecycle, ProMotion, all orientations, 3 metadata flags, iPhone/iPad support, "
-        f"{unique_icons} icons, and Debug Features screen passed"
+        f"iOS bundle: UIScene lifecycle, ProMotion, all orientations, iPhone/iPad multitasking support, "
+        f"{unique_icons} legacy icons, a modern AppIcon, and Debug Features linkage passed"
     )
 
 

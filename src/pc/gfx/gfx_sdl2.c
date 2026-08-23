@@ -23,6 +23,9 @@
 #include <SDL2/SDL.h>
 #endif
 
+#include <stdio.h>
+#include <stdlib.h>
+
 #include "gfx_window_manager_api.h"
 #include "gfx_screen_config.h"
 #include "../configfile.h"
@@ -58,6 +61,9 @@ extern int SDL_iPhoneGetWindowSafeAreaInsets(SDL_Window *window,
 #endif
 
 static SDL_Window *wnd;
+#ifdef ENABLE_OPENGL
+static SDL_GLContext gl_context;
+#endif
 static int inverted_scancode_table[512];
 static int vsync_enabled = 0;
 static unsigned int window_width = DESIRED_SCREEN_WIDTH;
@@ -67,6 +73,12 @@ static void (*on_fullscreen_changed_callback)(bool is_now_fullscreen);
 static bool (*on_key_down_callback)(int scancode);
 static bool (*on_key_up_callback)(int scancode);
 static void (*on_all_keys_up_callback)(void);
+
+static void gfx_sdl_fatal(const char *action) {
+    fprintf(stderr, "Fatal SDL video error while %s: %s\n", action, SDL_GetError());
+    SDL_Quit();
+    exit(EXIT_FAILURE);
+}
 
 const SDL_Scancode windows_scancode_table[] =
 { 
@@ -262,7 +274,9 @@ static void gfx_sdl_init(const char *game_name, bool start_in_fullscreen) {
     SDL_SetHint(SDL_HINT_ORIENTATIONS,
                 "LandscapeLeft LandscapeRight Portrait PortraitUpsideDown");
 #endif
-    SDL_Init(SDL_INIT_VIDEO);
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+        gfx_sdl_fatal("initializing SDL");
+    }
 
 #ifdef ENABLE_OPENGL
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
@@ -273,7 +287,7 @@ static void gfx_sdl_init(const char *game_name, bool start_in_fullscreen) {
 #endif
 
     char title[512];
-    sprintf(title, "%s (%s)", game_name, GFX_API_NAME);
+    snprintf(title, sizeof(title), "%s (%s)", game_name, GFX_API_NAME);
 
 #ifdef ENABLE_METAL
     SDL_SetHint(SDL_HINT_IOS_HIDE_HOME_INDICATOR, "2");
@@ -281,9 +295,15 @@ static void gfx_sdl_init(const char *game_name, bool start_in_fullscreen) {
     wnd = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
             0, 0, SDL_WINDOW_METAL | SDL_WINDOW_SHOWN | SDL_WINDOW_FULLSCREEN
             | SDL_WINDOW_BORDERLESS | SDL_WINDOW_ALLOW_HIGHDPI);
+    if (wnd == NULL) {
+        gfx_sdl_fatal("creating the Metal window");
+    }
     fullscreen_state = true;
 
     metal_view = SDL_Metal_CreateView(wnd);
+    if (metal_view == NULL) {
+        gfx_sdl_fatal("creating the Metal view");
+    }
 
     // Render at the native (retina) resolution
     int drawable_w, drawable_h;
@@ -317,9 +337,15 @@ static void gfx_sdl_init(const char *game_name, bool start_in_fullscreen) {
     wnd = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
             0, 0, SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_FULLSCREEN
             | SDL_WINDOW_BORDERLESS | SDL_WINDOW_ALLOW_HIGHDPI);
+    if (wnd == NULL) {
+        gfx_sdl_fatal("creating the OpenGL ES window");
+    }
     fullscreen_state = true;
 
-    SDL_GL_CreateContext(wnd);
+    gl_context = SDL_GL_CreateContext(wnd);
+    if (gl_context == NULL) {
+        gfx_sdl_fatal("creating the OpenGL ES context");
+    }
 
     // Render at the native (retina) resolution
     int drawable_w, drawable_h;
@@ -348,12 +374,18 @@ static void gfx_sdl_init(const char *game_name, bool start_in_fullscreen) {
 #else
     wnd = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
             window_width, window_height, SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+    if (wnd == NULL) {
+        gfx_sdl_fatal("creating the OpenGL window");
+    }
 
     if (start_in_fullscreen) {
         set_fullscreen(true, false);
     }
 
-    SDL_GL_CreateContext(wnd);
+    gl_context = SDL_GL_CreateContext(wnd);
+    if (gl_context == NULL) {
+        gfx_sdl_fatal("creating the OpenGL context");
+    }
 
     SDL_GL_SetSwapInterval(1);
     test_vsync();

@@ -164,6 +164,28 @@ int main(void) {
           "empty landscape space is not the A button");
     CHECK(overlay_fits_safe_area(), "landscape controls avoid the island and home indicator");
 
+    // A palm or second finger in the stick zone must not steal analog input
+    // from the finger represented by the visible floating stick.
+    {
+        OSContPad pad;
+        touch_down(20, safe_x(0.18f), safe_y(0.68f));
+        touch_motion(20, safe_x(0.30f), safe_y(0.68f));
+        touch_down(21, safe_x(0.35f), safe_y(0.68f));
+        touch_motion(21, safe_x(0.05f), safe_y(0.68f));
+        memset(&pad, 0, sizeof(pad));
+        controller_touch.read(&pad);
+        CHECK(pad.stick_x > 0, "a second left-side finger cannot steal the virtual stick");
+        touch_up(20);
+        touch_up(21);
+
+        touch_down(22, safe_x(0.18f), safe_y(0.68f));
+        touch_motion(22, safe_x(0.08f), safe_y(0.68f));
+        memset(&pad, 0, sizeof(pad));
+        controller_touch.read(&pad);
+        CHECK(pad.stick_x < 0, "the virtual stick can be acquired after its owner releases");
+        touch_up(22);
+    }
+
     controller_gamepad_set_connected(true);
     {
         int count = -1;

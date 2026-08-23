@@ -2568,7 +2568,8 @@ void render_pause_red_coins(void) {
     s8 x;
 
     for (x = 0; x < gRedCoinsCollected; x++) {
-        print_animated_red_coin(GFX_DIMENSIONS_FROM_RIGHT_EDGE(30) - x * 20, 16);
+        print_animated_red_coin(GFX_DIMENSIONS_SAFE_FROM_RIGHT_EDGE(30) - x * 20,
+                                GFX_DIMENSIONS_SAFE_FROM_BOTTOM_EDGE(16));
     }
 }
 

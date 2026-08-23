@@ -1,5 +1,8 @@
 // configfile.c - handles loading and saving the configuration options
 #include <stdbool.h>
+#include <errno.h>
+#include <limits.h>
+#include <math.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -11,6 +14,7 @@
 #include "controller/controller_gamepad.h"
 
 #define ARRAY_LEN(arr) (sizeof(arr) / sizeof(arr[0]))
+#define MAX_CONFIG_LINE_SIZE (64 * 1024)
 
 enum ConfigOptionType {
     CONFIG_TYPE_BOOL,
@@ -132,6 +136,10 @@ static char *read_file_line(FILE *file) {
     size_t offset = 0; // offset in buffer to write
 
     buffer = malloc(bufferSize);
+    if (buffer == NULL) {
+        fputs("Unable to allocate memory while reading configuration\n", stderr);
+        return NULL;
+    }
     while (1) {
         // Read a line from the file
         if (fgets(buffer + offset, bufferSize - offset, file) == NULL) {
@@ -139,7 +147,10 @@ static char *read_file_line(FILE *file) {
             return NULL; // Nothing could be read.
         }
         offset = strlen(buffer);
-        assert(offset > 0);
+        if (offset == 0) {
+            free(buffer);
+            return NULL;
+        }
 
         // If a newline was found, remove the trailing newline and exit
         if (buffer[offset - 1] == '\n') {
@@ -151,9 +162,24 @@ static char *read_file_line(FILE *file) {
             break;
 
         // If no newline or EOF was reached, then the whole line wasn't read.
-        bufferSize *= 2; // Increase buffer size
-        buffer = realloc(buffer, bufferSize);
-        assert(buffer != NULL);
+        if (bufferSize >= MAX_CONFIG_LINE_SIZE) {
+            int ch;
+            fprintf(stderr, "Ignoring a configuration line longer than %d bytes\n",
+                    MAX_CONFIG_LINE_SIZE);
+            while ((ch = fgetc(file)) != '\n' && ch != EOF) {
+            }
+            buffer[0] = '\0';
+            break;
+        }
+        size_t newSize = bufferSize * 2;
+        char *newBuffer = realloc(buffer, newSize);
+        if (newBuffer == NULL) {
+            fputs("Unable to grow a configuration line buffer\n", stderr);
+            free(buffer);
+            return NULL;
+        }
+        buffer = newBuffer;
+        bufferSize = newSize;
     }
 
     return buffer;
@@ -161,7 +187,7 @@ static char *read_file_line(FILE *file) {
 
 // Returns the position of the first non-whitespace character
 static char *skip_whitespace(char *str) {
-    while (isspace(*str))
+    while (isspace((unsigned char) *str))
         str++;
     return str;
 }
@@ -169,10 +195,10 @@ static char *skip_whitespace(char *str) {
 // NULL-terminates the current whitespace-delimited word, and returns a pointer to the next word
 static char *word_split(char *str) {
     // Precondition: str must not point to whitespace
-    assert(!isspace(*str));
+    assert(!isspace((unsigned char) *str));
 
     // Find either the next whitespace char or end of string
-    while (!isspace(*str) && *str != '\0')
+    while (*str != '\0' && !isspace((unsigned char) *str))
         str++;
     if (*str == '\0') // End of string
         return str;
@@ -182,6 +208,35 @@ static char *word_split(char *str) {
 
     // Skip whitespace to next word
     return skip_whitespace(str);
+}
+
+static bool parse_uint(const char *text, unsigned int *value) {
+    char *end;
+    unsigned long parsed;
+
+    if (text[0] == '\0' || text[0] == '-') {
+        return false;
+    }
+    errno = 0;
+    parsed = strtoul(text, &end, 10);
+    if (errno == ERANGE || *end != '\0' || parsed > UINT_MAX) {
+        return false;
+    }
+    *value = (unsigned int) parsed;
+    return true;
+}
+
+static bool parse_float(const char *text, float *value) {
+    char *end;
+    float parsed;
+
+    errno = 0;
+    parsed = strtof(text, &end);
+    if (text[0] == '\0' || errno == ERANGE || *end != '\0' || !isfinite(parsed)) {
+        return false;
+    }
+    *value = parsed;
+    return true;
 }
 
 // Splits a string into words, and stores the words into the 'tokens' array
@@ -220,7 +275,7 @@ void configfile_load(const char *filename) {
         char *tokens[2];
         int numTokens;
 
-        while (isspace(*p))
+        while (isspace((unsigned char) *p))
             p++;
         numTokens = tokenize_string(p, 2, tokens);
         if (numTokens != 0) {
@@ -236,23 +291,32 @@ void configfile_load(const char *filename) {
                 if (option == NULL)
                     printf("unknown option '%s'\n", tokens[0]);
                 else {
+                    bool valid = false;
                     switch (option->type) {
                         case CONFIG_TYPE_BOOL:
-                            if (strcmp(tokens[1], "true") == 0)
+                            if (strcmp(tokens[1], "true") == 0) {
                                 *option->boolValue = true;
-                            else if (strcmp(tokens[1], "false") == 0)
+                                valid = true;
+                            } else if (strcmp(tokens[1], "false") == 0) {
                                 *option->boolValue = false;
+                                valid = true;
+                            }
                             break;
                         case CONFIG_TYPE_UINT:
-                            sscanf(tokens[1], "%u", option->uintValue);
+                            valid = parse_uint(tokens[1], option->uintValue);
                             break;
                         case CONFIG_TYPE_FLOAT:
-                            sscanf(tokens[1], "%f", option->floatValue);
+                            valid = parse_float(tokens[1], option->floatValue);
                             break;
                         default:
                             assert(0); // bad type
                     }
-                    printf("option: '%s', value: '%s'\n", tokens[0], tokens[1]);
+                    if (valid) {
+                        printf("option: '%s', value: '%s'\n", tokens[0], tokens[1]);
+                    } else {
+                        fprintf(stderr, "invalid value for option '%s': '%s'\n",
+                                tokens[0], tokens[1]);
+                    }
                 }
             } else
                 puts("error: expected value");
@@ -265,15 +329,16 @@ void configfile_load(const char *filename) {
 }
 
 // Writes the config file to 'filename'
-void configfile_save(const char *filename) {
+bool configfile_save(const char *filename) {
     FILE *file;
+    bool write_ok = true;
 
     printf("Saving configuration to '%s'\n", filename);
 
     file = fs_open_atomic(filename);
     if (file == NULL) {
-        // error
-        return;
+        fprintf(stderr, "Unable to open configuration temporary file for '%s'\n", filename);
+        return false;
     }
 
     for (unsigned int i = 0; i < ARRAY_LEN(options); i++) {
@@ -281,18 +346,30 @@ void configfile_save(const char *filename) {
 
         switch (option->type) {
             case CONFIG_TYPE_BOOL:
-                fprintf(file, "%s %s\n", option->name, *option->boolValue ? "true" : "false");
+                write_ok = write_ok && fprintf(file, "%s %s\n", option->name,
+                                                *option->boolValue ? "true" : "false") >= 0;
                 break;
             case CONFIG_TYPE_UINT:
-                fprintf(file, "%s %u\n", option->name, *option->uintValue);
+                write_ok = write_ok && fprintf(file, "%s %u\n", option->name,
+                                                *option->uintValue) >= 0;
                 break;
             case CONFIG_TYPE_FLOAT:
-                fprintf(file, "%s %f\n", option->name, *option->floatValue);
+                write_ok = write_ok && fprintf(file, "%s %f\n", option->name,
+                                                *option->floatValue) >= 0;
                 break;
             default:
                 assert(0); // unknown type
         }
     }
 
-    fs_close_atomic(file, filename);
+    if (!write_ok) {
+        fprintf(stderr, "Unable to write complete configuration to '%s'\n", filename);
+        fs_abort_atomic(file, filename);
+        return false;
+    }
+    if (!fs_close_atomic(file, filename)) {
+        fprintf(stderr, "Unable to commit configuration to '%s'\n", filename);
+        return false;
+    }
+    return true;
 }

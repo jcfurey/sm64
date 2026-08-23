@@ -1,4 +1,5 @@
 #include <math.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -52,7 +53,7 @@ struct RGBA {
 };
 
 struct XYWidthHeight {
-    uint16_t x, y, width, height;
+    int32_t x, y, width, height;
 };
 
 struct LoadedVertex {
@@ -171,6 +172,19 @@ static size_t buf_vbo_num_tris;
 
 static struct GfxWindowManagerAPI *gfx_wapi;
 static struct GfxRenderingAPI *gfx_rapi;
+
+static int32_t gfx_float_to_int32(float value) {
+    if (!isfinite(value)) {
+        return 0;
+    }
+    if (value <= -2147483648.0f) {
+        return INT32_MIN;
+    }
+    if (value >= 2147483520.0f) {
+        return INT32_MAX;
+    }
+    return (int32_t) value;
+}
 
 static void gfx_flush(void) {
     if (buf_vbo_len > 0) {
@@ -300,6 +314,11 @@ static bool gfx_texture_cache_lookup(int tile, struct TextureHashmapNode **n, co
     if (gfx_texture_cache.pool_pos == sizeof(gfx_texture_cache.pool) / sizeof(struct TextureHashmapNode)) {
         // Pool is full. We just invalidate everything and start over.
         gfx_texture_cache.pool_pos = 0;
+        memset(gfx_texture_cache.hashmap, 0, sizeof(gfx_texture_cache.hashmap));
+        // These pointers refer into the recycled pool. Force both texture
+        // units to look up their current images again before using them.
+        rendering_state.textures[0] = NULL;
+        rendering_state.textures[1] = NULL;
         node = &gfx_texture_cache.hashmap[hash];
         //puts("Clearing texture cache");
     }
@@ -585,6 +604,12 @@ static void import_texture(int tile) {
 
 static void gfx_normalize_vector(float v[3]) {
     float s = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    if (!(s > 0.000001f) || !isfinite(s)) {
+        v[0] = 0.0f;
+        v[1] = 0.0f;
+        v[2] = 0.0f;
+        return;
+    }
     v[0] /= s;
     v[1] /= s;
     v[2] /= s;
@@ -659,11 +684,10 @@ static void gfx_sp_matrix(uint8_t parameters, const int32_t *addr) {
 
 static void gfx_sp_pop_matrix(uint32_t count) {
     while (count--) {
-        if (rsp.modelview_matrix_stack_size > 0) {
+        // Stack entry zero is the base matrix and must always remain valid.
+        if (rsp.modelview_matrix_stack_size > 1) {
             --rsp.modelview_matrix_stack_size;
-            if (rsp.modelview_matrix_stack_size > 0) {
-                gfx_matrix_mul(rsp.MP_matrix, rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1], rsp.P_matrix);
-            }
+            gfx_matrix_mul(rsp.MP_matrix, rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1], rsp.P_matrix);
         }
     }
 }
@@ -673,6 +697,10 @@ static float gfx_adjust_x_for_aspect_ratio(float x) {
 }
 
 static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx *vertices) {
+    if (vertices == NULL || dest_index >= MAX_VERTICES
+        || n_vertices > MAX_VERTICES - dest_index) {
+        return;
+    }
     for (size_t i = 0; i < n_vertices; i++, dest_index++) {
         const Vtx_t *v = &vertices[i].v;
         const Vtx_tn *vn = &vertices[i].n;
@@ -778,6 +806,11 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx *verti
 }
 
 static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx) {
+    if (vtx1_idx >= ARRAY_COUNT(rsp.loaded_vertices)
+        || vtx2_idx >= ARRAY_COUNT(rsp.loaded_vertices)
+        || vtx3_idx >= ARRAY_COUNT(rsp.loaded_vertices)) {
+        return;
+    }
     struct LoadedVertex *v1 = &rsp.loaded_vertices[vtx1_idx];
     struct LoadedVertex *v2 = &rsp.loaded_vertices[vtx2_idx];
     struct LoadedVertex *v3 = &rsp.loaded_vertices[vtx3_idx];
@@ -1014,10 +1047,12 @@ static void gfx_calc_and_set_viewport(const Vp_t *viewport) {
     x *= RATIO_X;
     y *= RATIO_Y;
     
-    rdp.viewport.x = x + gfx_game_offset_x;
-    rdp.viewport.y = y + gfx_game_offset_y;
-    rdp.viewport.width = width;
-    rdp.viewport.height = height;
+    // Malformed or intentionally oversized viewport commands must not rely
+    // on undefined float-to-integer conversions.
+    rdp.viewport.x = gfx_float_to_int32(x + (float) gfx_game_offset_x);
+    rdp.viewport.y = gfx_float_to_int32(y + (float) gfx_game_offset_y);
+    rdp.viewport.width = width > 0.0f ? gfx_float_to_int32(width) : 0;
+    rdp.viewport.height = height > 0.0f ? gfx_float_to_int32(height) : 0;
     
     rdp.viewport_or_scissor_changed = true;
 }
@@ -1058,12 +1093,18 @@ static void gfx_sp_moveword(uint8_t index, uint16_t offset, uint32_t data) {
     switch (index) {
         case G_MW_NUMLIGHT:
 #ifdef F3DEX_GBI_2
-            rsp.current_num_lights = data / 24 + 1; // add ambient light
+            data = data / 24 + 1; // add ambient light
 #else
             // Ambient light is included
             // The 31th bit is a flag that lights should be recalculated
-            rsp.current_num_lights = (data - 0x80000000U) / 32;
+            data = data >= 0x80000000U ? (data - 0x80000000U) / 32 : 1;
 #endif
+            if (data < 1) {
+                data = 1;
+            } else if (data > ARRAY_COUNT(rsp.current_lights)) {
+                data = ARRAY_COUNT(rsp.current_lights);
+            }
+            rsp.current_num_lights = (uint8_t) data;
             rsp.lights_changed = 1;
             break;
         case G_MW_FOG:
@@ -1084,10 +1125,10 @@ static void gfx_dp_set_scissor(uint32_t mode, uint32_t ulx, uint32_t uly, uint32
     float width = (lrx - ulx) / 4.0f * RATIO_X;
     float height = (lry - uly) / 4.0f * RATIO_Y;
     
-    rdp.scissor.x = x + gfx_game_offset_x;
-    rdp.scissor.y = y + gfx_game_offset_y;
-    rdp.scissor.width = width;
-    rdp.scissor.height = height;
+    rdp.scissor.x = gfx_float_to_int32(x + (float) gfx_game_offset_x);
+    rdp.scissor.y = gfx_float_to_int32(y + (float) gfx_game_offset_y);
+    rdp.scissor.width = width > 0.0f ? gfx_float_to_int32(width) : 0;
+    rdp.scissor.height = height > 0.0f ? gfx_float_to_int32(height) : 0;
     
     rdp.viewport_or_scissor_changed = true;
 }
@@ -1677,7 +1718,7 @@ static void gfx_run_dl(Gfx* cmd) {
     }
 }
 
-static void gfx_sp_reset() {
+static void gfx_sp_reset(void) {
     rsp.modelview_matrix_stack_size = 1;
     rsp.current_num_lights = 2;
     rsp.lights_changed = true;
@@ -1765,6 +1806,13 @@ void gfx_start_frame(void) {
     gfx_current_dimensions.width = layout.width;
     gfx_current_dimensions.height = layout.height;
     gfx_current_dimensions.aspect_ratio = (float)gfx_current_dimensions.width / (float)gfx_current_dimensions.height;
+    {
+        float game_units_per_pixel = (float) SCREEN_HEIGHT / (float) layout.height;
+        gfx_current_dimensions.safe_left = (float) layout.safe_left * game_units_per_pixel;
+        gfx_current_dimensions.safe_top = (float) layout.safe_top * game_units_per_pixel;
+        gfx_current_dimensions.safe_right = (float) layout.safe_right * game_units_per_pixel;
+        gfx_current_dimensions.safe_bottom = (float) layout.safe_bottom * game_units_per_pixel;
+    }
 }
 
 void gfx_run(Gfx *commands) {

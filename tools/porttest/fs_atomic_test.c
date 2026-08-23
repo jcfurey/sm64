@@ -77,11 +77,11 @@ int main(int argc, char **argv) {
     CHECK(f != NULL, "opens a stream for a formatted write");
     if (f != NULL) {
         fprintf(f, "half a file");
-        fclose(f);
+        fs_abort_atomic(f, path);
     }
     CHECK(read_dest(rd, sizeof(rd)) == (int) sizeof(buf) && rd[0] == (char) 0xCD,
           "an abandoned write leaves the original intact");
-    remove(tmp_path);
+    CHECK(!tmp_exists(), "aborting a stream removes its temporary file");
 
     f = fs_open_atomic(path);
     if (f != NULL) {

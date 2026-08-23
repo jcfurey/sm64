@@ -96,8 +96,17 @@ MAKE_ARGS=(
     "IOS_SDL2_PATH=$SDL_PREFIX"
     "BUILD_DIR_BASE=$XCODE_BUILD_BASE"
     "PORT_SYNTAX_WARNINGS="
-    "PORT_DIAGNOSTIC_FLAGS=-fdiagnostics-absolute-paths -Wno-deprecated-declarations -Wno-constant-conversion"
+    "PORT_DIAGNOSTIC_FLAGS=-fdiagnostics-absolute-paths -Wall -Wextra -Wpedantic -Wno-deprecated-declarations -Wno-constant-conversion -Wno-unused-parameter -Wno-unused-function -Wno-strict-prototypes"
 )
+
+if [[ "$CONFIG_KEY" == "debug" ]]; then
+    # The executable is built by GNU Make and copied into Xcode's bundle, so
+    # Xcode's compiler settings do not affect it. Retain assertions and frame
+    # pointers, avoid LTO, and include full source-level debug information.
+    MAKE_ARGS+=(
+        "OPT_FLAGS=-Og -g3 -fno-omit-frame-pointer -fno-math-errno"
+    )
+fi
 
 if [[ "${SM64_ENABLE_OPENGL:-NO}" == "YES" ]]; then
     MAKE_ARGS+=(ENABLE_OPENGL=1 ENABLE_METAL=0)
@@ -109,6 +118,12 @@ echo "Building SM64 $VERSION for $PLATFORM ($ARCH)..."
 mkdir -p "$(dirname "$DESTINATION_EXECUTABLE")"
 cp "$SOURCE_EXECUTABLE" "$DESTINATION_EXECUTABLE"
 chmod 0755 "$DESTINATION_EXECUTABLE"
+
+if [[ "$CONFIG_KEY" == "debug" && -n "${DWARF_DSYM_FOLDER_PATH:-}" && -n "${DWARF_DSYM_FILE_NAME:-}" ]]; then
+    DSYM_PATH="$DWARF_DSYM_FOLDER_PATH/$DWARF_DSYM_FILE_NAME"
+    rm -rf "$DSYM_PATH"
+    /usr/bin/dsymutil "$DESTINATION_EXECUTABLE" -o "$DSYM_PATH"
+fi
 
 ICON_NAMES=(
     Icon-60@2x.png
@@ -127,3 +142,23 @@ ICON_NAMES=(
 for icon in "${ICON_NAMES[@]}"; do
     cp "$REPO_ROOT/ios/icons/$icon" "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/$icon"
 done
+
+# Compile the 1024 px source into a modern asset catalog. The explicit legacy
+# files above remain for iOS 14 compatibility; Assets.car supplies the named
+# AppIcon and App Store marketing artwork expected by current tooling.
+ASSET_WORK="$DERIVED_FILE_DIR/SM64Assets.xcassets"
+APPICON_SET="$ASSET_WORK/AppIcon.appiconset"
+ASSET_OUTPUT="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+rm -rf "$ASSET_WORK"
+mkdir -p "$APPICON_SET"
+cp "$REPO_ROOT/ios/icons/AppIcon-1024.png" "$APPICON_SET/AppIcon-1024.png"
+cp "$REPO_ROOT/ios/AppIconContents.json" "$APPICON_SET/Contents.json"
+/usr/bin/xcrun actool "$ASSET_WORK" \
+    --compile "$ASSET_OUTPUT" \
+    --app-icon AppIcon \
+    --platform "$PLATFORM" \
+    --minimum-deployment-target "$MIN_VERSION" \
+    --target-device iphone \
+    --target-device ipad \
+    --bundle-identifier "${PRODUCT_BUNDLE_IDENTIFIER:?}" \
+    --output-partial-info-plist "$DERIVED_FILE_DIR/SM64AppIcon.plist"

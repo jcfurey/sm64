@@ -81,6 +81,8 @@ sm64config.txt
 # Built by tools/porttest/Makefile
 /tools/porttest/*_test
 /tools/porttest/gfx_pool_test_asan
+/tools/porttest/gfx_command_fuzz
+/tools/porttest/gfx_command_fuzz_smoke
 /tools/porttest/gfx_bench
 /tools/porttest/shader-dump/
 /tools/porttest/*.o

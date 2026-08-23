@@ -24,6 +24,9 @@ int main(void) {
     CHECK(layout.x == 0 && layout.y == 0
           && layout.width == 2622 && layout.height == 1206,
           "landscape remains full-screen");
+    CHECK(layout.safe_left == 177 && layout.safe_right == 177
+          && layout.safe_top == 0 && layout.safe_bottom == 63,
+          "landscape publishes unsafe HUD margins without shrinking the scene");
 
     gfx_viewport_layout_calculate(1206, 2622, 0, 177, 0, 102,
                                   true, false, &layout);
@@ -32,6 +35,9 @@ int main(void) {
           "portrait fits a top-aligned 4:3 game panel below the island");
     CHECK(layout.width * 3 == layout.height * 4 + 2,
           "integer rounding keeps the portrait panel at 4:3");
+    CHECK(layout.safe_left == 0 && layout.safe_top == 0
+          && layout.safe_right == 0 && layout.safe_bottom == 0,
+          "a portrait panel fitted inside the safe area needs no HUD margins");
 
     gfx_viewport_layout_calculate(2048, 2732, 0, 48, 0, 40,
                                   true, false, &layout);

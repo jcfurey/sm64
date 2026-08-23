@@ -34,7 +34,8 @@ yourself and do not distribute it.**
    ```
 
    The build script automatically applies the repository's SDL2 `UIScene`
-   lifecycle patch before compiling each slice. Rebuild both slices after
+   lifecycle patch before compiling each slice. The SDL archive is verified
+   against its pinned SHA-256 before extraction. Rebuild both slices after
    pulling changes to that patch.
 
 2. Place your ROM(s) in the repository root, named `baserom.us.z64` /
@@ -63,6 +64,12 @@ Xcode's Issue navigator; command-line builds retain that full warning audit,
 while real Xcode compile errors use absolute, clickable source paths.
 The generated app adopts UIKit's single-scene lifecycle on iOS 13 and newer;
 SDL startup is deferred until the window scene is connected.
+
+The Xcode **Debug** configuration is intentionally different from command-line
+release builds: it uses `-Og -g3`, keeps assertions and frame pointers, disables
+LTO, and emits a matching dSYM. Source breakpoints, local variables, and crash
+symbolication therefore work normally. Use **Release** when measuring frame
+pacing or device performance.
 
 ## Building from the command line
 
@@ -131,7 +138,7 @@ safe area, leaving the lower portion of the display as a dedicated control
 deck. This avoids the severe center crop a 4:3 scene would otherwise receive
 on a tall phone. Landscape remains full-screen.
 
-The overlay follows the live UIKit safe area, so controls stay clear of the
+The overlay and edge-anchored game HUD follow the live UIKit safe area, so UI stays clear of the
 Dynamic Island/notch, rounded corners, and home indicator as the device rotates.
 It uses separate portrait and landscape arrangements whose positions adapt to
 the available rectangle rather than matching a hard-coded list of device
@@ -139,6 +146,9 @@ models. Control size is calculated in UIKit points and capped on large tablets,
 so the same build remains usable from compact iPhones through 13-inch iPads.
 Modern iPhones without a Home button may ignore upside-down portrait even
 though the app declares it; that decision belongs to UIKit.
+On iPad, the app also participates in multitasking and Stage Manager; resize
+events select the appropriate layout profile without requiring device-specific
+screen tables.
 
 The layout is not fixed. The **Touch Controls** options screen provides
 **Touch Size** and **Touch Alpha** (Hidden removes the overlay while leaving
@@ -234,7 +244,7 @@ ignored rather than counted against the frame rate.
 | `IOS_SIGN_IDENTITY` | `-` (ad-hoc) | Codesigning identity |
 | `IOS_SDL2_PATH` | `ios/SDL2` | Where the static SDL2 lives |
 
-The iOS build compiles with `-O3 -flto -DNDEBUG` by default. `NDEBUG`
+Command-line and Xcode Release builds compile with `-O3 -flto -DNDEBUG` by default. `NDEBUG`
 disables the display list interpreter's assertions, which would otherwise
 abort a shipped app on a command it does not recognize; the bounds they
 guarded are enforced at runtime instead, and an unsupported texture format
@@ -248,6 +258,21 @@ frames per second on ProMotion displays. `HIGH_FPS=0` builds the vanilla
 30 fps port. Wireframe view and the 240p half of retro mode are Metal
 features; the GLES fallback ignores them (collision view and 4:3 work
 everywhere).
+
+## ROM-free verification
+
+The maintained platform layer can be checked without copyrighted assets:
+
+```
+make -C tools/porttest check
+make -C tools/porttest check-sanitize
+make -C tools/porttest check-shaders
+python3 tools/porttest/check-ios-project.py
+```
+
+The sanitizer target includes a structured display-list fuzz smoke pass. A
+libFuzzer entry point is also available as `gfx_command_fuzz` when the selected
+Clang installation includes the libFuzzer runtime.
 
 Rendering a sub-frame re-runs the display list interpreter, which sounds
 expensive but measures at roughly 0.1 ms for a scene of a few thousand

@@ -18,3 +18,43 @@ jobs:
           sudo apt-get install -y build-essential libsdl2-dev pkg-config
       - name: Run ROM-free platform tests
         run: make -C tools/porttest check
+      - name: Compile sampled OpenGL and GLES shaders
+        run: |
+          sudo apt-get install -y glslang-tools
+          make -C tools/porttest check-shaders SHADER_LIMIT=400
+
+  sanitizer-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang libsdl2-dev pkg-config
+      - name: Run ASan, UBSan, and structured display-list fuzz smoke tests
+        env:
+          CC: clang
+          CXX: clang++
+        run: make -C tools/porttest check-sanitize
+
+  windows-atomic-save:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Exercise atomic replacement on Windows
+        shell: cmd
+        run: |
+          call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=x64
+          cl /nologo /std:c11 /W4 /D_CRT_SECURE_NO_WARNINGS /I src\pc tools\porttest\fs_atomic_test.c src\pc\fs.c /Fe:tools\porttest\fs_atomic_test.exe
+          tools\porttest\fs_atomic_test.exe
+
+  apple-project-checks:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate scripts and Apple project metadata
+        run: |
+          git ls-files -z '*.sh' | xargs -0 -n 1 bash -n
+          plutil -lint ios/Info.plist.in ios/SM64.xcodeproj/project.pbxproj
+          python3 tools/porttest/check-ios-project.py
+          python3 tools/porttest/check-options-menu.py

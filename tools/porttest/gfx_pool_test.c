@@ -71,6 +71,7 @@ struct FakeShader {
 static struct FakeShader fake_shaders[FAKE_SHADER_POOL];
 static int fake_shader_count;
 static int fake_textures_uploaded;
+static int fake_texture_count;
 
 static bool fake_z_is_from_0_to_1(void) { return false; }
 static void fake_unload_shader(struct ShaderProgram *p) {}
@@ -110,7 +111,7 @@ static void fake_shader_get_info(struct ShaderProgram *p, uint8_t *num_inputs, b
     used_textures[1] = sh->used_textures[1];
 }
 
-static uint32_t fake_new_texture(void) { return 0; }
+static uint32_t fake_new_texture(void) { return (uint32_t) fake_texture_count++; }
 static void fake_select_texture(int tile, uint32_t id) {}
 static void fake_upload_texture(const uint8_t *buf, int w, int h) { fake_textures_uploaded++; }
 static void fake_set_sampler(int tile, bool lin, uint32_t cms, uint32_t cmt) {}
@@ -203,6 +204,7 @@ static void build_dl(void) {
 // A display list that asks for a textured triangle with a degenerate tile
 static Gfx bad_tile_dl[64];
 static uint8_t texture[32 * 32 * 2];
+static uint8_t many_textures[520][8];
 
 static void build_bad_tile_dl(int line, int fmt, bool load_tlut) {
     Gfx *g = bad_tile_dl;
@@ -235,25 +237,52 @@ static void run_dl(Gfx *dlist) {
     gfx_end_frame();
 }
 
-int main(void) {
-    printf("display list pool bounds\n");
-    printf("  feeding %d distinct combiner configurations through a 64-entry pool\n",
-           NUM_MODES);
+static void run_tiny_texture(const uint8_t *image) {
+    Gfx tiny_dl[32];
+    Gfx *g = tiny_dl;
 
+    gSPViewport(g++, &viewport);
+    gSPClearGeometryMode(g++, G_LIGHTING);
+    gSPVertex(g++, verts, 4, 0);
+    gDPSetTextureImage(g++, G_IM_FMT_RGBA, G_IM_SIZ_16b, 1, image);
+    gDPSetTile(g++, G_IM_FMT_RGBA, G_IM_SIZ_16b, 1, 0, G_TX_LOADTILE, 0,
+               G_TX_WRAP, 0, G_TX_NOLOD, G_TX_WRAP, 0, G_TX_NOLOD);
+    gDPLoadBlock(g++, G_TX_LOADTILE, 0, 0, 3, 0);
+    gDPSetTile(g++, G_IM_FMT_RGBA, G_IM_SIZ_16b, 1, 0, G_TX_RENDERTILE, 0,
+               G_TX_WRAP, 0, G_TX_NOLOD, G_TX_WRAP, 0, G_TX_NOLOD);
+    gDPSetTileSize(g++, G_TX_RENDERTILE, 0, 0,
+                   3 << G_TEXTURE_IMAGE_FRAC, 0 << G_TEXTURE_IMAGE_FRAC);
+    gSPTexture(g++, 0x8000, 0x8000, 0, G_TX_RENDERTILE, G_ON);
+    emit_combine(g++, G_CCMUX_TEXEL0, G_CCMUX_0, G_CCMUX_SHADE, G_CCMUX_0);
+    gSP1Triangle(g++, 0, 1, 2, 0);
+    gDPFullSync(g++);
+    gSPEndDisplayList(g++);
+    run_dl(tiny_dl);
+}
+
+static void run_malformed_commands(void) {
+    Gfx malformed[16];
+    Gfx *g = malformed;
+
+    gSPViewport(g++, &viewport);
+    gSPPopMatrix(g++, G_MTX_MODELVIEW);
+    gSPPopMatrix(g++, G_MTX_MODELVIEW);
+    // The encoded end index wraps below the count. gfx_pc must reject the
+    // resulting size_t underflow before indexing loaded_vertices.
+    gSPVertex(g++, verts, 64, 64);
+    gSPNumLights(g++, NUMLIGHTS_7);
+    gSP1Triangle(g++, 100, 101, 102, 0);
+    gSPEndDisplayList(g++);
+    run_dl(malformed);
+}
+
+int main(void) {
     build_dl();
     gfx_init(&wm, &fake_rapi, "pooltest", false);
 
-    gfx_start_frame();
-    gfx_run(dl);
-    gfx_end_frame();
-
-    // Run it again: the second pass must reuse what the first created
-    // rather than allocating a fresh set of entries
-    gfx_start_frame();
-    gfx_run(dl);
-    gfx_end_frame();
-
-    printf("  ok:   survived without running past the end of a pool\n");
+    run_malformed_commands();
+    printf("display list command bounds\n");
+    printf("  ok:   malformed matrix, light, vertex, and triangle commands are rejected\n");
 
     printf("\ndegenerate tiles\n");
     for (int i = 0; i < (int) sizeof(texture); i++) {
@@ -275,6 +304,47 @@ int main(void) {
     build_bad_tile_dl(8, G_IM_FMT_CI, true);
     run_dl(bad_tile_dl);
     printf("  ok:   a CI texture with a palette still renders\n");
+
+    printf("\ntexture cache recycling\n");
+    {
+        int uploads_before = fake_textures_uploaded;
+        for (size_t i = 0; i < sizeof(many_textures) / sizeof(many_textures[0]); i++) {
+            memset(many_textures[i], (int) i, sizeof(many_textures[i]));
+            run_tiny_texture(many_textures[i]);
+        }
+        printf(fake_textures_uploaded - uploads_before == 520
+                   ? "  ok:   every unique texture uploads across a full cache recycle\n"
+                   : "  FAIL: expected 520 uploads across cache recycle, got %d\n",
+               fake_textures_uploaded - uploads_before);
+        if (fake_textures_uploaded - uploads_before != 520) {
+            return 1;
+        }
+        uploads_before = fake_textures_uploaded;
+        run_tiny_texture(many_textures[519]);
+        printf(fake_textures_uploaded == uploads_before
+                   ? "  ok:   the newest texture remains cached after recycling\n"
+                   : "  FAIL: the newest texture was not cached after recycling\n");
+        if (fake_textures_uploaded != uploads_before) {
+            return 1;
+        }
+    }
+
+    // Exercise the fixed combiner pool last. Once it is deliberately full,
+    // the graceful fallback may reuse a non-textured combiner, which would
+    // prevent the earlier texture tests from reaching their decoder paths.
+    printf("\ndisplay list pool bounds\n");
+    printf("  feeding %d distinct combiner configurations through a 64-entry pool\n",
+           NUM_MODES);
+    gfx_start_frame();
+    gfx_run(dl);
+    gfx_end_frame();
+
+    // Run it again: the second pass must reuse what the first created
+    // rather than allocating a fresh set of entries.
+    gfx_start_frame();
+    gfx_run(dl);
+    gfx_end_frame();
+    printf("  ok:   survived without running past the end of a pool\n");
 
     printf("PASS\n");
     return 0;

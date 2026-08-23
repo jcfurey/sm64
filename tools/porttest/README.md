@@ -7,6 +7,7 @@ checkout.
 
 ```
 make -C tools/porttest check    # build and run the tests
+make -C tools/porttest check-sanitize # ASan + UBSan + structured fuzz smoke
 make -C tools/porttest          # also builds the benchmark
 ./tools/porttest/gfx_bench 3000
 ```
@@ -48,14 +49,15 @@ somewhere unreachable, and that a damaged layout file degrades to the
 default instead of being applied.
 
 It also verifies safe-area behavior across representative phones and tablets,
-portrait control scaling, one-shot haptic transitions, and automatic overlay
-visibility when a gamepad connects.
+portrait control scaling, single ownership of the floating stick, one-shot
+haptic transitions, and automatic overlay visibility when a gamepad connects.
 
 ## `viewport_layout_test`
 
 Covers the native-drawable rectangle used for the game. Landscape stays
-full-screen, Retro Mode remains centered at 4:3 on wide displays, and iPhone
-and iPad portrait layouts fit a complete 4:3 panel below the top safe area.
+full-screen while publishing safe HUD margins, Retro Mode remains centered at
+4:3 on wide displays, and iPhone and iPad portrait layouts fit a complete 4:3
+panel below the top safe area.
 
 ## `controller_map_test`
 
@@ -84,6 +86,11 @@ make -C tools/porttest gfx_pool_test_asan && ./tools/porttest/gfx_pool_test_asan
 Both pools now stop at their limit and reuse an existing entry, so an
 over-complex display list renders with the wrong combiner instead of
 corrupting memory.
+
+The same suite rejects malformed matrix-stack pops, light counts, vertex loads,
+and triangle indices, and forces the texture cache through a complete recycle.
+`gfx_command_fuzz.c` feeds those fields from arbitrary bytes while keeping all
+command pointers in valid local storage.
 
 ## `gfx_bench`
 

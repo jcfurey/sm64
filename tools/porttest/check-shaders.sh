@@ -87,11 +87,12 @@ mkdir -p "$DUMP_DIR"/{metal,opengl,gles,d3d} || exit 1
 echo
 
 if METAL=$(xcrun --find metal 2>/dev/null) \
-   && SDK=$(xcrun --sdk macosx --show-sdk-path 2>/dev/null); then
+   && SDK=$(xcrun --sdk macosx --show-sdk-path 2>/dev/null) \
+   && "$METAL" -help >/dev/null 2>&1; then
     export METAL SDK SHADER_CMD='"$METAL" -isysroot "$SDK" -c "$1" -o /dev/null'
     compile_set metal "$DUMP_DIR/metal/*.metal"
 else
-    echo "  metal   SKIPPED (no metal compiler: xcodebuild -downloadComponent MetalToolchain)"
+    echo "  metal   SKIPPED (Metal Toolchain is unavailable: xcodebuild -downloadComponent MetalToolchain)"
 fi
 
 if GLSLANG=$(command -v glslangValidator 2>/dev/null); then

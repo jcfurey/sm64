@@ -44,7 +44,8 @@ extern unsigned int configGamepadCLeft;
 extern unsigned int configGamepadCRight;
 
 void configfile_load(const char *filename);
-void configfile_save(const char *filename);
+// Returns false if the complete file could not be durably committed.
+bool configfile_save(const char *filename);
 // Saves to the standard config path (for the in-game options menu)
 void configfile_save_current(void);
 

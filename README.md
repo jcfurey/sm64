@@ -26,7 +26,9 @@ open ios/SM64.xcodeproj                          # select a scheme and press Run
 
 The GNU Make command-line build remains available. See
 [ios/README.md](ios/README.md) for full Xcode and command-line instructions,
-including how to install the resulting app on a device.
+including how to install the resulting app on a device. The current validation
+matrix and remaining hardware checks are tracked in
+[PORT-STATUS.md](PORT-STATUS.md).
 
 ## Building native executables
 

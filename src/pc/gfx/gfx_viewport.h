@@ -12,6 +12,12 @@ struct GfxViewportLayout {
     uint32_t y;
     uint32_t width;
     uint32_t height;
+    // Unsafe margins that still overlap the game viewport. These are zero
+    // when the viewport itself has already been fitted inside the safe area.
+    uint32_t safe_left;
+    uint32_t safe_top;
+    uint32_t safe_right;
+    uint32_t safe_bottom;
 };
 
 void gfx_viewport_layout_calculate(uint32_t drawable_width,

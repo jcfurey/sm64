@@ -66,7 +66,7 @@ int main(void) {
     CHECK((pad.button & A_BUTTON) == 0, "an out-of-range runtime binding is ignored safely");
 
     configGamepadA = GAMEPAD_INPUT_NORTH;
-    configfile_save(config_path);
+    CHECK(configfile_save(config_path), "configuration saves report a durable commit");
     configGamepadA = GAMEPAD_INPUT_SOUTH;
     configfile_load(config_path);
     CHECK(configGamepadA == GAMEPAD_INPUT_NORTH, "gamepad bindings round-trip through the config file");
@@ -79,6 +79,19 @@ int main(void) {
     configfile_load(config_path);
     CHECK(configGamepadA == GAMEPAD_DEFAULT_A,
           "an out-of-range saved binding falls back to its default");
+
+    {
+        FILE *file = fopen(config_path, "wb");
+        configFrameCap = 60;
+        configTouchScale = 1.25f;
+        configHUD = true;
+        fprintf(file, "frame_cap 60fps\ntouch_scale nan\nhud falseish\n");
+        fclose(file);
+    }
+    configfile_load(config_path);
+    CHECK(configFrameCap == 60, "a numeric option rejects trailing garbage");
+    CHECK(configTouchScale == 1.25f, "a floating option rejects non-finite values");
+    CHECK(configHUD, "a boolean option rejects unknown spellings");
 
     controller_gamepad_set_connected(true);
     CHECK(controller_gamepad_is_connected(), "controller presence is shared with the touch overlay");

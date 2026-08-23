@@ -32,6 +32,12 @@ Note that RECT commands must be enhanced to support negative coordinates with th
 #define GFX_DIMENSIONS_RECT_FROM_LEFT_EDGE(v) ((int)floorf(GFX_DIMENSIONS_FROM_LEFT_EDGE(v)))
 #define GFX_DIMENSIONS_RECT_FROM_RIGHT_EDGE(v) ((int)ceilf(GFX_DIMENSIONS_FROM_RIGHT_EDGE(v)))
 #define GFX_DIMENSIONS_ASPECT_RATIO (gfx_current_dimensions.aspect_ratio)
+#define GFX_DIMENSIONS_SAFE_FROM_LEFT_EDGE(v) (GFX_DIMENSIONS_FROM_LEFT_EDGE(v) + gfx_current_dimensions.safe_left)
+#define GFX_DIMENSIONS_SAFE_FROM_RIGHT_EDGE(v) (GFX_DIMENSIONS_FROM_RIGHT_EDGE(v) - gfx_current_dimensions.safe_right)
+#define GFX_DIMENSIONS_SAFE_RECT_FROM_LEFT_EDGE(v) ((int)floorf(GFX_DIMENSIONS_SAFE_FROM_LEFT_EDGE(v)))
+#define GFX_DIMENSIONS_SAFE_RECT_FROM_RIGHT_EDGE(v) ((int)ceilf(GFX_DIMENSIONS_SAFE_FROM_RIGHT_EDGE(v)))
+#define GFX_DIMENSIONS_SAFE_FROM_BOTTOM_EDGE(v) (gfx_current_dimensions.safe_bottom + (v))
+#define GFX_DIMENSIONS_SAFE_FROM_TOP_EDGE(v) (SCREEN_HEIGHT - gfx_current_dimensions.safe_top - (v))
 
 #else
 
@@ -40,6 +46,12 @@ Note that RECT commands must be enhanced to support negative coordinates with th
 #define GFX_DIMENSIONS_RECT_FROM_LEFT_EDGE(v) (v)
 #define GFX_DIMENSIONS_RECT_FROM_RIGHT_EDGE(v) (SCREEN_WIDTH - (v))
 #define GFX_DIMENSIONS_ASPECT_RATIO (4.0f / 3.0f)
+#define GFX_DIMENSIONS_SAFE_FROM_LEFT_EDGE(v) (v)
+#define GFX_DIMENSIONS_SAFE_FROM_RIGHT_EDGE(v) (SCREEN_WIDTH - (v))
+#define GFX_DIMENSIONS_SAFE_RECT_FROM_LEFT_EDGE(v) (v)
+#define GFX_DIMENSIONS_SAFE_RECT_FROM_RIGHT_EDGE(v) (SCREEN_WIDTH - (v))
+#define GFX_DIMENSIONS_SAFE_FROM_BOTTOM_EDGE(v) (v)
+#define GFX_DIMENSIONS_SAFE_FROM_TOP_EDGE(v) (SCREEN_HEIGHT - (v))
 
 #endif
 
