@@ -8,6 +8,7 @@
 
 #ifdef TARGET_IOS
 // SDL provides the UIKit application entry point and redefines main below
+#include <TargetConditionals.h>
 #include <SDL2/SDL_main.h>
 #endif
 
@@ -91,8 +92,9 @@ void exec_display_list(struct SPTask *spTask) {
 #define SAMPLES_LOW 528
 #endif
 
-// Rendered frames per second, measured over the last second; displayed by
-// the in-game FPS counter
+// Frames that actually reached the display per second over the last second;
+// displayed by the in-game FPS counter. Other backends count completed frame
+// submissions, while iOS Metal supplies presentation-confirmed frames.
 s32 gCurrentFPS = 0;
 
 static s32 sFPSAccum;
@@ -100,6 +102,13 @@ static long long sFPSWindowStartMs;
 
 static void fps_count_frames(s32 frames) {
     long long now = framerate_monotonic_ms();
+#if defined(TARGET_IOS) && defined(ENABLE_METAL) && !TARGET_OS_SIMULATOR
+    static u64 last_presented_frames;
+    u64 presented_frames = gfx_metal_presented_frame_count();
+
+    frames = (s32) (presented_frames - last_presented_frames);
+    last_presented_frames = presented_frames;
+#endif
     sFPSAccum += frames;
     if (sFPSWindowStartMs == 0) {
         sFPSWindowStartMs = now;
@@ -321,9 +330,15 @@ void main_func(void) {
     inited = 1;
 #else
     inited = 1;
+#ifdef TARGET_IOS
+    // UIKit must regain its run loop after SDL installs the display callback.
+    // The callback drives fixed-rate logic and variable-rate presentation.
+    wm_api->main_loop(produce_one_frame);
+#else
     while (1) {
         wm_api->main_loop(produce_one_frame);
     }
+#endif
 #endif
 }
 

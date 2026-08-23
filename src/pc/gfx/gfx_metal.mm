@@ -22,6 +22,8 @@
 #include <time.h>
 #include <errno.h>
 #include <string.h>
+#include <math.h>
+#include <atomic>
 
 #ifndef _LANGUAGE_C
 #define _LANGUAGE_C
@@ -126,6 +128,12 @@ static struct {
     id<MTLRenderPipelineState> overlay_pipeline;
     bool overlay_pipeline_failed;
 } mtl;
+
+static std::atomic<uint64_t> sPresentedFrameCount(0);
+
+uint64_t gfx_metal_presented_frame_count(void) {
+    return sPresentedFrameCount.load(std::memory_order_relaxed);
+}
 
 static_assert(sizeof(mtl.shader_program_pool) / sizeof(mtl.shader_program_pool[0])
                   >= GFX_MAX_SHADER_PROGRAMS,
@@ -728,12 +736,20 @@ void gfx_metal_present(void) {
     render_fps *= gRenderSubframes;
 #endif
 
+#if defined(TARGET_IOS) && !TARGET_OS_SIMULATOR
+    // Count only frames Core Animation confirms reached the device screen. A
+    // handler still runs for a dropped drawable, but presentedTime is zero in
+    // that case. The simulator SDK does not expose this presentation feedback.
+    [mtl.drawable addPresentedHandler:^(id<MTLDrawable> drawable) {
+        if (drawable.presentedTime > 0.0) {
+            sPresentedFrameCount.fetch_add(1, std::memory_order_relaxed);
+        }
+    }];
+#endif
+
 #if TARGET_OS_SIMULATOR
-    // The simulator has no presentDrawable:afterMinimumDuration:, and its
-    // drawable queue does not apply the backpressure a device's does, so
-    // nothing else here bounds the game loop -- without this the game runs as
-    // fast as the host can draw. Hold the frame by hand instead, which is the
-    // job that API does on a device.
+    // Simulator Metal doesn't honor the device's timed-presentation path.
+    // Space batched interpolation frames with a monotonic sleep instead.
     {
         static double next_present_s;
         double interval = 1.0 / render_fps;
@@ -763,6 +779,27 @@ void gfx_metal_present(void) {
         next_present_s += interval;
     }
     [mtl.command_buffer presentDrawable:mtl.drawable];
+#elif defined(TARGET_IOS)
+    // Schedule against absolute host deadlines. afterMinimumDuration chains
+    // every frame to the previous presentation; when ProMotion dynamically
+    // lowers its cadence those waits compound and hold up the next 30 Hz game
+    // tick. Absolute deadlines let Core Animation drop an interpolation frame
+    // it cannot display without ever turning that into slow-motion gameplay.
+    {
+        static double next_present_s;
+        static double previous_interval_s;
+        const double now_s = CACurrentMediaTime();
+        const double interval_s = 1.0 / render_fps;
+
+        if (next_present_s == 0.0
+            || fabs(previous_interval_s - interval_s) > 0.000001
+            || next_present_s < now_s - interval_s) {
+            next_present_s = now_s;
+        }
+        previous_interval_s = interval_s;
+        [mtl.command_buffer presentDrawable:mtl.drawable atTime:next_present_s];
+        next_present_s += interval_s;
+    }
 #else
     [mtl.command_buffer presentDrawable:mtl.drawable afterMinimumDuration:1.0 / render_fps];
 #endif

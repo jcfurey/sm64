@@ -73,6 +73,10 @@ static void (*on_fullscreen_changed_callback)(bool is_now_fullscreen);
 static bool (*on_key_down_callback)(int scancode);
 static bool (*on_key_up_callback)(int scancode);
 static void (*on_all_keys_up_callback)(void);
+#ifdef TARGET_IOS
+static void (*ios_run_one_game_iter)(void);
+static void SDLCALL gfx_sdl_ios_animation_callback(void *param);
+#endif
 
 static void gfx_sdl_fatal(const char *action) {
     fprintf(stderr, "Fatal SDL video error while %s: %s\n", action, SDL_GetError());
@@ -424,10 +428,64 @@ static void gfx_sdl_set_keyboard_callbacks(bool (*on_key_down)(int scancode), bo
 }
 
 static void gfx_sdl_main_loop(void (*run_one_game_iter)(void)) {
+#ifdef TARGET_IOS
+    // SDL's UIKit backend owns a CADisplayLink and calls this at the fastest
+    // cadence the display currently makes available. Register the game runner
+    // below; the callback keeps the fixed-rate game clock independent of that
+    // variable presentation cadence.
+    if (ios_run_one_game_iter == NULL) {
+        ios_run_one_game_iter = run_one_game_iter;
+        if (SDL_iPhoneSetAnimationCallback(wnd, 1, gfx_sdl_ios_animation_callback,
+                                           NULL) < 0) {
+            gfx_sdl_fatal("starting the iOS display callback");
+        }
+    }
+#else
     while (1) {
         run_one_game_iter();
     }
+#endif
 }
+
+#ifdef TARGET_IOS
+static void SDLCALL gfx_sdl_ios_animation_callback(void *param) {
+    static double next_logic_s;
+    static bool event_pump_reenabled;
+    (void) param;
+    const double frequency = (double) SDL_GetPerformanceFrequency();
+    const double now_s = (double) SDL_GetPerformanceCounter() / frequency;
+#ifdef HIGH_FPS_PC
+    const double logic_period_s = 1.0 / GAME_FRAMERATE;
+#else
+    const double logic_period_s = 1.0 / 30.0;
+#endif
+
+    // SDL disables its lifecycle observer after the app's main function
+    // returns. The animation callback deliberately returns main to UIKit, so
+    // restore that observer on the first display callback.
+    if (!event_pump_reenabled) {
+        SDL_iPhoneSetEventPump(SDL_TRUE);
+        event_pump_reenabled = true;
+    }
+
+    // ProMotion is variable-rate: callbacks can arrive at 120, 80, 60, or a
+    // lower system-selected cadence. Advance game logic from real time rather
+    // than every N callbacks so a refresh-rate change cannot slow gameplay or
+    // audio. Never run catch-up ticks in a burst after a suspension or hitch.
+    if (next_logic_s == 0.0 || now_s - next_logic_s >= 0.2) {
+        next_logic_s = now_s;
+    }
+    if (now_s + 0.0005 < next_logic_s) {
+        return;
+    }
+
+    ios_run_one_game_iter();
+    next_logic_s += logic_period_s;
+    if (next_logic_s <= now_s) {
+        next_logic_s = now_s + logic_period_s;
+    }
+}
+#endif
 
 static void gfx_sdl_get_dimensions(uint32_t *width, uint32_t *height) {
 #ifdef ENABLE_METAL

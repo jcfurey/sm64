@@ -5,8 +5,9 @@
 
 #include <PR/ultratypes.h>
 
-// Rendered frames per second over the last second, measured by the
-// platform layer (pc_main.c)
+// Frames per second over the last second. iOS Metal counts confirmed onscreen
+// presentations so dropped frames are visible instead of being reported as
+// successful submissions.
 extern s32 gCurrentFPS;
 
 // Updates and renders the options menu and its Debug Features submenu. Opened

@@ -247,7 +247,11 @@ in the app's config file:
   pressure, or accessibility settings. Xcode 26.5's iPhone 17 Pro simulator
   reports a 60 Hz maximum through UIKit, so Auto resolves to 60 there despite
   the simulated model name; verify 120 Hz on physical ProMotion hardware.
-  The in-game FPS counter measures frames the game actually rendered.
+  On a physical Metal device, the in-game FPS counter counts only drawables
+  Core Animation confirms were displayed; frames dropped after submission no
+  longer make the counter look healthy. The simulator retains elapsed
+  submission-rate measurement because its Metal SDK does not expose that
+  presentation feedback.
 - **View** — Normal, Wireframe (Metal renderer), or Collision, which draws
   the collision mesh around Mario as translucent triangles: floors green,
   ceilings red, walls blue.
@@ -285,13 +289,20 @@ media-service transitions so stale samples are not replayed on resume.
 
 ## Frame pacing under load
 
-Sub-frames are rendered inside the same 1/30 s that the game logic runs in,
-so a device that cannot draw them all would otherwise fall behind on logic
-frames and run the game in slow motion. The port measures how long each
-logic frame actually takes and gives up a sub-frame after sustained
-lateness — 120 fps steps down to 60, and 60 to 30 — earning it back after
-about ten seconds of clean frames. Brief hitches such as level loads are
-ignored rather than counted against the frame rate.
+On iOS, SDL's `CADisplayLink` calls the port at the fastest cadence currently
+available from the variable-rate display. A monotonic 30 Hz deadline inside
+that callback controls game logic and audio, so ProMotion switching among
+120, 80, 60, or lower system-selected rates cannot change game speed.
+Interpolated Metal frames use absolute host presentation times; Core Animation
+can drop one it cannot show without chaining the delay into the next logic
+tick.
+
+Sub-frames are still generated as one batch for each logic frame. If producing
+that batch itself blocks the callback, the port measures the resulting logic
+lateness and gives up a sub-frame after sustained overload — 120 fps steps
+down to 60, and 60 to 30 — earning it back after about ten seconds of clean
+frames. Brief hitches such as level loads are ignored rather than counted
+against the frame rate.
 
 ## Build options
 

@@ -435,7 +435,7 @@ static void opt_print_value(s16 x, s16 y, s32 id) {
 #ifdef HIGH_FPS_PC
     if (id == OPT_FRAME_CAP) {
         char text[OPT_MAX_TEXT];
-        s32 actual = GAME_FRAMERATE * gRenderSubframes;
+        s32 actual = gCurrentFPS > 0 ? gCurrentFPS : GAME_FRAMERATE * gRenderSubframes;
         s32 chosen = 0;
         const char *c;
 
