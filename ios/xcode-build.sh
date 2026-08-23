@@ -9,7 +9,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 VERSION="${SM64_VERSION:-us}"
 PLATFORM="${PLATFORM_NAME:-iphonesimulator}"
 ARCH="${CURRENT_ARCH:-}"
-MIN_VERSION="${IPHONEOS_DEPLOYMENT_TARGET:-14.0}"
+MIN_VERSION="${IPHONEOS_DEPLOYMENT_TARGET:-15.0}"
 
 if [[ -z "$ARCH" || "$ARCH" == "undefined_arch" ]]; then
     ARCH="${ARCHS%% *}"
@@ -81,7 +81,10 @@ else
     JOBS=4
 fi
 
-XCODE_BUILD_BASE="build/xcode/${CONFIG_KEY}-${RENDERER}"
+# GNU Make does not track command-line flag changes as dependencies. Include
+# the deployment baseline in the output path so raising it cannot silently
+# reuse objects compiled for an older iOS release.
+XCODE_BUILD_BASE="build/xcode/${CONFIG_KEY}-${RENDERER}-min${MIN_VERSION}"
 MAKE_TARGET="$XCODE_BUILD_BASE/${VERSION}_${BUILD_SUFFIX}/sm64.${VERSION}"
 SOURCE_EXECUTABLE="$REPO_ROOT/$MAKE_TARGET"
 DESTINATION_EXECUTABLE="${TARGET_BUILD_DIR:?}/${EXECUTABLE_PATH:?}"
@@ -106,6 +109,16 @@ if [[ "$CONFIG_KEY" == "debug" ]]; then
     MAKE_ARGS+=(
         "OPT_FLAGS=-Og -g3 -fno-omit-frame-pointer -fno-math-errno"
     )
+else
+    # Keep the shipping optimization and LTO profile while retaining line
+    # tables so TestFlight crash reports can be symbolicated from the archive.
+    # ld normally deletes its synthesized LTO object before dsymutil can read
+    # the debug map; retaining it beside the executable keeps the dSYM useful.
+    LTO_OBJECT="$REPO_ROOT/$XCODE_BUILD_BASE/${VERSION}_${BUILD_SUFFIX}/lto.o"
+    MAKE_ARGS+=(
+        "OPT_FLAGS=-O3 -flto -DNDEBUG -fno-math-errno -gline-tables-only"
+        "IOS_EXTRA_LDFLAGS=-Wl,-object_path_lto,$LTO_OBJECT"
+    )
 fi
 
 if [[ "${SM64_ENABLE_OPENGL:-NO}" == "YES" ]]; then
@@ -119,7 +132,7 @@ mkdir -p "$(dirname "$DESTINATION_EXECUTABLE")"
 cp "$SOURCE_EXECUTABLE" "$DESTINATION_EXECUTABLE"
 chmod 0755 "$DESTINATION_EXECUTABLE"
 
-if [[ "$CONFIG_KEY" == "debug" && -n "${DWARF_DSYM_FOLDER_PATH:-}" && -n "${DWARF_DSYM_FILE_NAME:-}" ]]; then
+if [[ -n "${DWARF_DSYM_FOLDER_PATH:-}" && -n "${DWARF_DSYM_FILE_NAME:-}" ]]; then
     DSYM_PATH="$DWARF_DSYM_FOLDER_PATH/$DWARF_DSYM_FILE_NAME"
     rm -rf "$DSYM_PATH"
     /usr/bin/dsymutil "$DESTINATION_EXECUTABLE" -o "$DSYM_PATH"
@@ -139,22 +152,23 @@ ICON_NAMES=(
     Icon-Small@3x.png
 )
 
+RESOURCE_OUTPUT="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
 for icon in "${ICON_NAMES[@]}"; do
-    cp "$REPO_ROOT/ios/icons/$icon" "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/$icon"
+    cp "$REPO_ROOT/ios/icons/$icon" "$RESOURCE_OUTPUT/$icon"
 done
+cp "$REPO_ROOT/ios/PrivacyInfo.xcprivacy" "$RESOURCE_OUTPUT/PrivacyInfo.xcprivacy"
 
 # Compile the 1024 px source into a modern asset catalog. The explicit legacy
 # files above remain for iOS 14 compatibility; Assets.car supplies the named
 # AppIcon and App Store marketing artwork expected by current tooling.
 ASSET_WORK="$DERIVED_FILE_DIR/SM64Assets.xcassets"
 APPICON_SET="$ASSET_WORK/AppIcon.appiconset"
-ASSET_OUTPUT="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
 rm -rf "$ASSET_WORK"
 mkdir -p "$APPICON_SET"
 cp "$REPO_ROOT/ios/icons/AppIcon-1024.png" "$APPICON_SET/AppIcon-1024.png"
 cp "$REPO_ROOT/ios/AppIconContents.json" "$APPICON_SET/Contents.json"
 /usr/bin/xcrun actool "$ASSET_WORK" \
-    --compile "$ASSET_OUTPUT" \
+    --compile "$RESOURCE_OUTPUT" \
     --app-icon AppIcon \
     --platform "$PLATFORM" \
     --minimum-deployment-target "$MIN_VERSION" \

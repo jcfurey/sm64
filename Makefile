@@ -609,7 +609,7 @@ ifeq ($(TARGET_IOS),1)
   # Cross-compile to iOS with the Xcode toolchain (macOS host required).
   # IOS_SDK is set further up, next to BUILD_DIR.
   IOS_ARCH ?= arm64
-  IOS_MIN_VERSION ?= 14.0
+  IOS_MIN_VERSION ?= 15.0
   IOS_SYSROOT ?= $(shell xcrun --sdk $(IOS_SDK) --show-sdk-path)
   # A static SDL2 built for the same SDK: headers in $(IOS_SDL2_PATH)/include/SDL2,
   # libSDL2.a in $(IOS_SDL2_PATH)/lib (see ios/README.md). The simulator wants
@@ -657,7 +657,7 @@ ifeq ($(TARGET_IOS),1)
   ifeq ($(ENABLE_OPENGL),1)
     PLATFORM_CFLAGS += -DUSE_GLES
   endif
-  PLATFORM_LDFLAGS := -lm $(OPT_FLAGS) $(IOS_TARGET_FLAGS) -L$(IOS_SDL2_PATH)/lib -lSDL2 \
+  PLATFORM_LDFLAGS := -lm $(OPT_FLAGS) $(IOS_TARGET_FLAGS) $(IOS_EXTRA_LDFLAGS) -L$(IOS_SDL2_PATH)/lib -lSDL2 \
     -framework UIKit -framework Foundation -framework CoreGraphics -framework QuartzCore \
     -framework AudioToolbox -framework CoreAudio -framework AVFoundation \
     -framework GameController -framework CoreMotion -framework CoreHaptics \
@@ -833,6 +833,8 @@ ifeq ($(TARGET_IOS),1)
 # App bundle and sideloadable .ipa
 IOS_BUNDLE_ID     ?= com.sm64port.$(VERSION)
 IOS_DISPLAY_NAME  ?= SM64 $(VERSION)
+IOS_MARKETING_VERSION ?= 1.0
+IOS_BUILD_VERSION ?= 1
 # "-" is ad-hoc signing; set to an "Apple Development: ..." identity to
 # install directly onto a device
 IOS_SIGN_IDENTITY ?= -
@@ -843,6 +845,9 @@ IOS_ICON_NAMES := Icon-60@2x.png Icon-60@3x.png \
                   Icon-Small-40.png Icon-Small-40@2x.png Icon-Small-40@3x.png \
                   Icon-Small.png Icon-Small@2x.png Icon-Small@3x.png
 IOS_ICON_FILES := $(addprefix ios/icons/,$(IOS_ICON_NAMES))
+IOS_PRIVACY_FILE := ios/PrivacyInfo.xcprivacy
+IOS_ASSET_CATALOG := $(BUILD_DIR)/SM64Assets.xcassets
+IOS_APPICON_SET := $(IOS_ASSET_CATALOG)/AppIcon.appiconset
 
 .PHONY: ios-app ios-ipa check-ios-bundle
 ios-app: $(IOS_APP)
@@ -850,18 +855,31 @@ ios-ipa: $(IOS_IPA)
 check-ios-bundle: $(IOS_APP)
 	$(PYTHON) tools/porttest/check-ios-bundle.py $(IOS_APP)
 
-$(IOS_APP): $(EXE) ios/Info.plist.in $(IOS_ICON_FILES)
+$(IOS_APP): $(EXE) ios/Info.plist.in ios/AppIconContents.json \
+            ios/icons/AppIcon-1024.png $(IOS_PRIVACY_FILE) $(IOS_ICON_FILES)
 	@$(PRINT) "$(GREEN)Packaging app bundle: $(BLUE)$@ $(NO_COL)\n"
 	$(V)$(RM) -r $@
 	$(V)mkdir -p $@
 	$(V)sed -e 's|$$(PRODUCT_BUNDLE_IDENTIFIER)|$(IOS_BUNDLE_ID)|g' \
 	    -e 's|$$(SM64_DISPLAY_NAME)|$(IOS_DISPLAY_NAME)|g' \
+	    -e 's|$$(MARKETING_VERSION)|$(IOS_MARKETING_VERSION)|g' \
+	    -e 's|$$(CURRENT_PROJECT_VERSION)|$(IOS_BUILD_VERSION)|g' \
 	    -e 's|$$(IPHONEOS_DEPLOYMENT_TARGET)|$(IOS_MIN_VERSION)|g' ios/Info.plist.in > $@/Info.plist
 	$(V)/usr/libexec/PlistBuddy -c 'Add :UIDeviceFamily array' \
 	    -c 'Add :UIDeviceFamily:0 integer 1' \
 	    -c 'Add :UIDeviceFamily:1 integer 2' $@/Info.plist
 	$(V)cp $(EXE) $@/sm64
 	$(V)cp $(IOS_ICON_FILES) $@/
+	$(V)cp $(IOS_PRIVACY_FILE) $@/PrivacyInfo.xcprivacy
+	$(V)$(RM) -r $(IOS_ASSET_CATALOG)
+	$(V)mkdir -p $(IOS_APPICON_SET)
+	$(V)cp ios/icons/AppIcon-1024.png $(IOS_APPICON_SET)/
+	$(V)cp ios/AppIconContents.json $(IOS_APPICON_SET)/Contents.json
+	$(V)xcrun actool $(IOS_ASSET_CATALOG) --compile $@ --app-icon AppIcon \
+	    --platform iphoneos --minimum-deployment-target $(IOS_MIN_VERSION) \
+	    --target-device iphone --target-device ipad \
+	    --bundle-identifier $(IOS_BUNDLE_ID) \
+	    --output-partial-info-plist $(BUILD_DIR)/SM64AppIcon.plist
 	$(V)codesign --force --sign "$(IOS_SIGN_IDENTITY)" $@
 
 $(IOS_IPA): $(IOS_APP)

@@ -20,6 +20,7 @@ yourself and do not distribute it.**
 
 - macOS with [Xcode](https://apps.apple.com/us/app/xcode/id497799835) and its
   command line tools (`xcode-select --install`)
+- An iPhone or iPad running iOS 15 or newer
 - `python3` (ships with macOS) and GNU make from Homebrew (`brew install make`)
 - An original Super Mario 64 ROM for each version you want to build
   (`us` and/or `jp`)
@@ -70,6 +71,68 @@ release builds: it uses `-Og -g3`, keeps assertions and frame pointers, disables
 LTO, and emits a matching dSYM. Source breakpoints, local variables, and crash
 symbolication therefore work normally. Use **Release** when measuring frame
 pacing or device performance.
+
+## Creating a TestFlight archive
+
+TestFlight requires an active Apple Developer Program membership, a globally
+unique bundle identifier registered to your team, and a matching app record in
+App Store Connect. The **SM64 US** target is configured for team `7YGTR289AX`
+with the permanent identifier `com.jcfurey.sm64.us`. Keep that identifier
+unchanged after creating the App Store Connect record. The JP target retains
+its local-build default until it needs its own App Store Connect record.
+
+This archive is intended **only for private internal TestFlight use on personal
+devices**. It contains ROM-derived Nintendo assets and must not be submitted to
+the general App Store, offered to external TestFlight testers, or otherwise
+distributed.
+
+For personal devices on your own App Store Connect account, use internal
+TestFlight testing:
+
+1. Select **SM64 US**, **Any iOS Device (arm64)**, and the **Release**
+   configuration, then choose **Product > Archive**.
+2. In Organizer, run **Validate App**. Then choose **Distribute App > TestFlight
+   Internal Only** and upload.
+3. In App Store Connect, add your Apple ID to an internal testing group and
+   install the build from the TestFlight app.
+
+The Release archive retains optimized line tables and includes a matching dSYM
+for crash symbolication. It also contains `PrivacyInfo.xcprivacy`, the modern
+AppIcon catalog, and `ITSAppUsesNonExemptEncryption = NO`. The privacy manifest
+declares no tracking or collected data and records the file-metadata and elapsed
+timer APIs used by the app and SDL.
+
+A command-line archive can be created without uploading:
+
+```
+xcodebuild -project ios/SM64.xcodeproj -scheme "SM64 US" \
+  -configuration Release -destination "generic/platform=iOS" \
+  -archivePath "$PWD/build/archives/SM64-us-1.0-2.xcarchive" \
+  CURRENT_PROJECT_VERSION=2 -allowProvisioningUpdates archive
+
+tools/porttest/check-ios-archive.py \
+  "$PWD/build/archives/SM64-us-1.0-2.xcarchive"
+```
+
+The archive check verifies the bundled metadata and privacy declarations, the
+Apple code signature, and that the optimized executable has a valid matching
+dSYM. Pass `--allow-unsigned` only when checking archive structure before a
+team and permanent bundle identifier have been selected.
+
+Every subsequent upload of version 1.0 must use a larger
+`CURRENT_PROJECT_VERSION`. `ios/ExportOptions-TestFlight.plist` is provided for
+automation and deliberately marks uploads as internal-TestFlight-only. Running
+the following command **uploads the archive to App Store Connect**:
+
+```
+xcodebuild -exportArchive \
+  -archivePath "$PWD/build/archives/SM64-us-1.0-2.xcarchive" \
+  -exportOptionsPlist ios/ExportOptions-TestFlight.plist \
+  -exportPath "$PWD/build/testflight-upload" -allowProvisioningUpdates
+```
+
+Keep `testFlightInternalTestingOnly` enabled for this project. Do not invite
+external testers or submit this build for general App Store review.
 
 ## Building from the command line
 
@@ -237,10 +300,12 @@ ignored rather than counted against the frame rate.
 | `VERSION` | `us` | Game version: `us` or `jp` (`eu` also builds but is less tested on the port) |
 | `ENABLE_OPENGL` | off | Use the OpenGL ES 2.0 renderer instead of Metal |
 | `PEDANTIC` | `0` | Compile the platform layer (`src/pc`) with `-Wall -Wextra -Wpedantic` |
-| `IOS_MIN_VERSION` | `14.0` | Minimum iOS version |
+| `IOS_MIN_VERSION` | `15.0` | Minimum iOS version |
 | `IOS_ARCH` | `arm64` | Target architecture |
 | `IOS_BUNDLE_ID` | `com.sm64port.<version>` | Bundle identifier |
 | `IOS_DISPLAY_NAME` | `SM64 <version>` | Home screen name |
+| `IOS_MARKETING_VERSION` | `1.0` | User-facing version |
+| `IOS_BUILD_VERSION` | `1` | Incrementing bundle build number |
 | `IOS_SIGN_IDENTITY` | `-` (ad-hoc) | Codesigning identity |
 | `IOS_SDL2_PATH` | `ios/SDL2` | Where the static SDL2 lives |
 

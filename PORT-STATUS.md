@@ -24,6 +24,12 @@ surface (`TARGET_N64=0`), especially iOS, `src/pc`, and `tools/porttest`.
   directory, including migration from the former SDL preference path.
 - Legacy launch icons plus a compiled modern AppIcon containing the 1024 px
   marketing source.
+- TestFlight-ready Release archives with optimized line tables, matching dSYMs,
+  export-compliance metadata, and a no-tracking/no-collection privacy manifest.
+  Distribution is intentionally restricted to private internal TestFlight use;
+  ROM-derived builds are not for external testing or general App Store release.
+- An iOS 15 deployment baseline across Xcode, GNU Make, and SDL builds, matching
+  App Store Connect's announced Spring 2027 minimum-version requirement.
 - A main-menu Debug Features button exposing Level Select and Debug Info.
 
 The iOS executable contains ROM-derived assets. Build it only from a ROM you
@@ -54,7 +60,8 @@ unavailable.
 
 The iOS bundle validator checks the scene manifest, ProMotion opt-in, all
 orientations, iPhone/iPad support, multitasking, file-sharing metadata, legacy
-icons, compiled AppIcon catalog, and Debug Features linkage.
+icons, compiled AppIcon catalog, export compliance, privacy declarations, and
+Debug Features linkage.
 
 ## Remaining external validation
 

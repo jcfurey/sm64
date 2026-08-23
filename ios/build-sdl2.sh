@@ -17,7 +17,7 @@
 set -euo pipefail
 
 SDL2_VERSION="${SDL2_VERSION:-2.30.7}"
-IOS_MIN_VERSION="${IOS_MIN_VERSION:-14.0}"
+IOS_MIN_VERSION="${IOS_MIN_VERSION:-15.0}"
 IOS_SDK="${IOS_SDK:-iphoneos}"
 
 case "$SDL2_VERSION" in

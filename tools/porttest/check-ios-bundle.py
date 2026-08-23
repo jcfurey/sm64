@@ -41,9 +41,24 @@ ALL_ORIENTATIONS = {
     "UIInterfaceOrientationPortraitUpsideDown",
 }
 
+REQUIRED_PRIVACY_REASONS = {
+    "NSPrivacyAccessedAPICategoryFileTimestamp": {"C617.1"},
+    "NSPrivacyAccessedAPICategorySystemBootTime": {"35F9.1"},
+}
+MINIMUM_IOS_VERSION = (15, 0)
+
 
 def fail(message: str) -> None:
     raise SystemExit(f"iOS bundle check failed: {message}")
+
+
+def version_tuple(value: object) -> tuple[int, ...]:
+    if not isinstance(value, str):
+        fail("MinimumOSVersion is missing or is not a string")
+    try:
+        return tuple(int(component) for component in value.split("."))
+    except ValueError:
+        fail(f"MinimumOSVersion {value!r} is malformed")
 
 
 def icon_files(info: dict[str, object], key: str) -> list[str]:
@@ -125,6 +140,37 @@ def check_modern_app_icon(bundle: Path, info: dict[str, object]) -> None:
         fail("the compiled AppIcon asset catalog is absent from the bundle")
 
 
+def check_privacy_manifest(bundle: Path) -> None:
+    path = bundle / "PrivacyInfo.xcprivacy"
+    if not path.is_file():
+        fail("PrivacyInfo.xcprivacy is absent from the bundle")
+    with path.open("rb") as source:
+        privacy = plistlib.load(source)
+
+    if privacy.get("NSPrivacyTracking") is not False:
+        fail("the privacy manifest must declare that the app does not track users")
+    if privacy.get("NSPrivacyTrackingDomains") != []:
+        fail("the privacy manifest must not declare tracking domains")
+    if privacy.get("NSPrivacyCollectedDataTypes") != []:
+        fail("the privacy manifest must declare that the app collects no data")
+
+    actual: dict[str, set[str]] = {}
+    entries = privacy.get("NSPrivacyAccessedAPITypes")
+    if not isinstance(entries, list):
+        fail("NSPrivacyAccessedAPITypes is missing or is not an array")
+    for entry in entries:
+        if not isinstance(entry, dict):
+            fail("NSPrivacyAccessedAPITypes contains a non-dictionary entry")
+        api_type = entry.get("NSPrivacyAccessedAPIType")
+        reasons = entry.get("NSPrivacyAccessedAPITypeReasons")
+        if not isinstance(api_type, str) or not isinstance(reasons, list) \
+                or not all(isinstance(reason, str) for reason in reasons):
+            fail("a privacy accessed-API entry is malformed")
+        actual[api_type] = set(reasons)
+    if actual != REQUIRED_PRIVACY_REASONS:
+        fail(f"required-reason declarations differ (actual={actual})")
+
+
 def check_scene_manifest(info: dict[str, object]) -> None:
     manifest = info.get("UIApplicationSceneManifest")
     if not isinstance(manifest, dict):
@@ -178,6 +224,11 @@ def main() -> None:
         if info.get(key) is not True:
             fail(f"{key} must be the boolean true")
 
+    if info.get("ITSAppUsesNonExemptEncryption") is not False:
+        fail("ITSAppUsesNonExemptEncryption must be the boolean false")
+    if version_tuple(info.get("MinimumOSVersion")) < MINIMUM_IOS_VERSION:
+        fail("MinimumOSVersion must be iOS 15.0 or newer for App Store Connect")
+
     if info.get("UIDeviceFamily") != [1, 2]:
         fail("UIDeviceFamily must support both iPhone (1) and iPad (2)")
     if info.get("UIRequiresFullScreen") is True:
@@ -186,6 +237,7 @@ def main() -> None:
     check_icon_set(bundle, info, "CFBundleIcons", IPHONE_ICONS)
     check_icon_set(bundle, info, "CFBundleIcons~ipad", IPAD_ICONS)
     check_modern_app_icon(bundle, info)
+    check_privacy_manifest(bundle)
     check_scene_manifest(info)
     check_orientations(info)
     check_debug_screen(bundle, info)
@@ -193,7 +245,7 @@ def main() -> None:
     unique_icons = len(set(IPHONE_ICONS) | set(IPAD_ICONS))
     print(
         f"iOS bundle: UIScene lifecycle, ProMotion, all orientations, iPhone/iPad multitasking support, "
-        f"{unique_icons} legacy icons, a modern AppIcon, and Debug Features linkage passed"
+        f"{unique_icons} legacy icons, a modern AppIcon, privacy metadata, and Debug Features linkage passed"
     )
 
 

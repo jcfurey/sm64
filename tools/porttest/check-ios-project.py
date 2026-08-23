@@ -13,6 +13,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 IOS = ROOT / "ios"
 EXPECTED_SDL_SHA256 = "2508c80438cd5ff3bbeb8fe36b8f3ce7805018ff30303010b61b03bb83ab9694"
+EXPECTED_PRIVACY_REASONS = {
+    "NSPrivacyAccessedAPICategoryFileTimestamp": {"C617.1"},
+    "NSPrivacyAccessedAPICategorySystemBootTime": {"35F9.1"},
+}
+EXPECTED_US_BUNDLE_ID = "com.jcfurey.sm64.us"
+EXPECTED_US_TEAM = "7YGTR289AX"
+EXPECTED_MINIMUM_IOS = "15.0"
 
 
 def fail(message: str) -> None:
@@ -36,6 +43,11 @@ def main() -> None:
             fail(f"Info.plist.in does not select the modern AppIcon asset for {key}")
     if info.get("UIRequiresFullScreen") is True:
         fail("the project disables iPad multitasking")
+    if info.get("ITSAppUsesNonExemptEncryption") is not False:
+        fail("Info.plist.in does not declare the app's export-compliance status")
+    if info.get("CFBundleShortVersionString") != "$(MARKETING_VERSION)" \
+            or info.get("CFBundleVersion") != "$(CURRENT_PROJECT_VERSION)":
+        fail("Info.plist.in does not use Xcode's marketing and build versions")
     if set(info.get("UISupportedInterfaceOrientations", [])) != {
         "UIInterfaceOrientationLandscapeLeft",
         "UIInterfaceOrientationLandscapeRight",
@@ -60,7 +72,55 @@ def main() -> None:
     if not (IOS / "patches/SDL2-2.30.7-uiscene.patch").is_file():
         fail("the SDL 2.30.7 UIScene patch is missing")
 
-    print("iOS project: metadata, orientations, multitasking, AppIcon, SDL checksum, and UIScene patch passed")
+    project = (IOS / "SM64.xcodeproj/project.pbxproj").read_text(encoding="utf-8")
+    if project.count(f"PRODUCT_BUNDLE_IDENTIFIER = {EXPECTED_US_BUNDLE_ID};") != 2:
+        fail("the US target does not consistently use its permanent TestFlight bundle identifier")
+    if project.count(f"DEVELOPMENT_TEAM = {EXPECTED_US_TEAM};") != 2:
+        fail("the US target does not consistently use its TestFlight development team")
+    us_build_versions: list[int] = []
+    for configuration_id in ("A00000000000000000000030", "A00000000000000000000031"):
+        match = re.search(
+            rf"{configuration_id}.*?CURRENT_PROJECT_VERSION = ([0-9]+);",
+            project,
+            re.DOTALL,
+        )
+        if match is None:
+            fail("a US target configuration has no numeric build number")
+        us_build_versions.append(int(match.group(1)))
+    if len(set(us_build_versions)) != 1 or us_build_versions[0] < 2:
+        fail(f"the US target build numbers are inconsistent or stale: {us_build_versions}")
+    if project.count(f"IPHONEOS_DEPLOYMENT_TARGET = {EXPECTED_MINIMUM_IOS};") != 2:
+        fail("the Xcode project does not consistently require iOS 15")
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    xcode_bridge = (IOS / "xcode-build.sh").read_text(encoding="utf-8")
+    if f"IOS_MIN_VERSION ?= {EXPECTED_MINIMUM_IOS}" not in makefile \
+            or f"IPHONEOS_DEPLOYMENT_TARGET:-{EXPECTED_MINIMUM_IOS}" not in xcode_bridge \
+            or f'IOS_MIN_VERSION:-{EXPECTED_MINIMUM_IOS}' not in build_script:
+        fail("the Make, Xcode bridge, and SDL deployment baselines are inconsistent")
+
+    with (IOS / "PrivacyInfo.xcprivacy").open("rb") as source:
+        privacy = plistlib.load(source)
+    if privacy.get("NSPrivacyTracking") is not False \
+            or privacy.get("NSPrivacyTrackingDomains") != [] \
+            or privacy.get("NSPrivacyCollectedDataTypes") != []:
+        fail("the privacy manifest's no-tracking/no-collection declarations are malformed")
+    actual_reasons = {
+        entry.get("NSPrivacyAccessedAPIType"): set(entry.get("NSPrivacyAccessedAPITypeReasons", []))
+        for entry in privacy.get("NSPrivacyAccessedAPITypes", [])
+        if isinstance(entry, dict)
+    }
+    if actual_reasons != EXPECTED_PRIVACY_REASONS:
+        fail(f"the privacy required-reason declarations differ: {actual_reasons}")
+
+    with (IOS / "ExportOptions-TestFlight.plist").open("rb") as source:
+        export = plistlib.load(source)
+    if export.get("method") != "app-store-connect" or export.get("destination") != "upload" \
+            or export.get("signingStyle") != "automatic" \
+            or export.get("testFlightInternalTestingOnly") is not True \
+            or export.get("uploadSymbols") is not True:
+        fail("the internal TestFlight export options are missing or malformed")
+
+    print("iOS project: distribution metadata, privacy, AppIcon, SDL checksum, and UIScene patch passed")
 
 
 if __name__ == "__main__":
