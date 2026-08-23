@@ -7,9 +7,20 @@
 #include "audio/audio_sdl.h"
 #include "controller/controller_touch.h"
 
+extern "C" {
+#include "configfile.h"
+#include "framerate.h"
+#include "game/options_menu.h"
+}
+
 static bool platform_initialized;
+static bool app_active;
 static id route_observer;
 static id media_reset_observer;
+static id scene_will_deactivate_observer;
+static id scene_did_enter_background_observer;
+static id scene_will_enter_foreground_observer;
+static id scene_did_activate_observer;
 static UIImpactFeedbackGenerator *touch_feedback;
 
 static void fire_touch_haptic(void) {
@@ -36,11 +47,45 @@ void ios_audio_session_set_app_active(bool active) {
     audio_sdl_pause(!active);
 }
 
+bool ios_platform_is_app_active(void) {
+    return app_active;
+}
+
+static void scene_will_deactivate(void) {
+    app_active = false;
+
+    // A suspended process can be terminated without another callback. Persist
+    // immediately from the scene transition instead of waiting for SDL's event
+    // queue to be drained by a future display refresh.
+    configfile_save_current();
+    touch_layout_save();
+    audio_sdl_pause(true);
+}
+
+static void scene_will_enter_foreground(void) {
+    touch_forget_fingers();
+#ifdef HIGH_FPS_PC
+    framerate_resume();
+#endif
+    fps_counter_reset();
+}
+
+static void scene_did_activate(void) {
+    app_active = true;
+    touch_forget_fingers();
+#ifdef HIGH_FPS_PC
+    framerate_resume();
+#endif
+    fps_counter_reset();
+    audio_sdl_pause(false);
+}
+
 void ios_platform_init(void) {
     if (platform_initialized) {
         return;
     }
     platform_initialized = true;
+    app_active = UIApplication.sharedApplication.applicationState == UIApplicationStateActive;
 
     // SDL's CoreAudio backend owns AVAudioSession activation and interruption
     // handling. Tell that single owner which category to use before it opens
@@ -63,6 +108,38 @@ void ios_platform_init(void) {
                     object:nil
                      queue:[NSOperationQueue mainQueue]
                 usingBlock:^(__unused NSNotification *note) {
-        audio_sdl_route_changed();
+        audio_sdl_media_services_reset();
+    }];
+
+    scene_will_deactivate_observer = [center
+        addObserverForName:UISceneWillDeactivateNotification
+                    object:nil
+                     queue:[NSOperationQueue mainQueue]
+                usingBlock:^(__unused NSNotification *note) {
+        scene_will_deactivate();
+    }];
+
+    scene_did_enter_background_observer = [center
+        addObserverForName:UISceneDidEnterBackgroundNotification
+                    object:nil
+                     queue:[NSOperationQueue mainQueue]
+                usingBlock:^(__unused NSNotification *note) {
+        scene_will_deactivate();
+    }];
+
+    scene_will_enter_foreground_observer = [center
+        addObserverForName:UISceneWillEnterForegroundNotification
+                    object:nil
+                     queue:[NSOperationQueue mainQueue]
+                usingBlock:^(__unused NSNotification *note) {
+        scene_will_enter_foreground();
+    }];
+
+    scene_did_activate_observer = [center
+        addObserverForName:UISceneDidActivateNotification
+                    object:nil
+                     queue:[NSOperationQueue mainQueue]
+                usingBlock:^(__unused NSNotification *note) {
+        scene_did_activate();
     }];
 }

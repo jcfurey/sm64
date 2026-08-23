@@ -63,6 +63,14 @@ s32 framerate_choose_subframes(void);
 // background, where the gap says nothing about rendering performance)
 void framerate_reset(void);
 
+// Discards only samples invalidated by a suspension, preserving the maximum
+// rate already learned for this device.
+void framerate_resume(void);
+
+// Feeds the policy the one-second on-screen presentation result. This catches
+// Core Animation drops that logic-start timing alone cannot observe.
+void framerate_note_presented_rate(s32 presented_fps, s32 requested_fps);
+
 // The current ceiling the backoff has settled on; exposed for tests and
 // diagnostics rather than for the game to act on
 s32 framerate_adaptive_max(void);

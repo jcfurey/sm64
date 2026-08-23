@@ -87,6 +87,11 @@ static struct {
     // depth states indexed [test][write]
     id<MTLDepthStencilState> depth_states[2][2];
 
+    // One release flag per reusable frame arena. Presentation and command
+    // completion can race on an error, so either callback may safely return
+    // the slot exactly once without allocating synchronization state per frame.
+    std::atomic_bool frame_slot_released[MAX_FRAMES_IN_FLIGHT];
+
     // Per-frame vertex buffer arenas
     NSMutableArray<id<MTLBuffer>> *vertex_buffers[MAX_FRAMES_IN_FLIGHT];
     int current_vertex_buffer;
@@ -130,14 +135,25 @@ static struct {
 } mtl;
 
 static std::atomic<uint64_t> sPresentedFrameCount(0);
+static std::atomic<uint32_t> sCommandBufferErrorCount(0);
 
 uint64_t gfx_metal_presented_frame_count(void) {
     return sPresentedFrameCount.load(std::memory_order_relaxed);
 }
 
+static void release_frame_slot(int frame_index) {
+    if (!mtl.frame_slot_released[frame_index].exchange(true, std::memory_order_relaxed)) {
+        dispatch_semaphore_signal(mtl.frame_semaphore);
+    }
+}
+
 static_assert(sizeof(mtl.shader_program_pool) / sizeof(mtl.shader_program_pool[0])
                   >= GFX_MAX_SHADER_PROGRAMS,
               "shader program pool is smaller than gfx_pc will fill");
+
+#ifdef TARGET_IOS
+static void ensure_overlay_pipeline(void);
+#endif
 
 
 //==============================================================================
@@ -517,9 +533,10 @@ static void gfx_metal_init(void) {
     mtl.layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
     mtl.layer.framebufferOnly = YES;
 
-    // Two drawables keep presentation latency at its minimum; nextDrawable
-    // blocking is what paces the game loop
-    mtl.layer.maximumDrawableCount = 2;
+    // CADisplayLink paces presentation. A third drawable gives the GPU room to
+    // finish the previous display frame without forcing nextDrawable to wait.
+    mtl.layer.maximumDrawableCount = MAX_FRAMES_IN_FLIGHT;
+    mtl.layer.allowsNextDrawableTimeout = YES;
 
     mtl.queue = [mtl.device newCommandQueue];
     if (mtl.queue == nil) {
@@ -530,6 +547,7 @@ static void gfx_metal_init(void) {
         metal_fatal("could not create the frame semaphore");
     }
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        mtl.frame_slot_released[i].store(true, std::memory_order_relaxed);
         mtl.vertex_buffers[i] = [[NSMutableArray alloc] init];
         if (mtl.vertex_buffers[i] == nil) {
             metal_fatal("could not create a vertex-buffer pool");
@@ -552,6 +570,13 @@ static void gfx_metal_init(void) {
             }
         }
     }
+
+#ifdef TARGET_IOS
+    // Avoid compiling the touch-control pipeline during the first playable
+    // frame. Generated game combiners are prewarmed by gfx_pc immediately
+    // after this backend initialization.
+    ensure_overlay_pipeline();
+#endif
 }
 
 static void gfx_metal_on_resize(void) {
@@ -586,9 +611,17 @@ static void gfx_metal_start_frame(void) {
         }
     }
 
-    dispatch_semaphore_wait(mtl.frame_semaphore, DISPATCH_TIME_FOREVER);
+    // Never stall UIKit's display callback behind old GPU work. Skipping an
+    // interpolation frame is preferable to delaying the next 30 Hz logic tick.
+    if (dispatch_semaphore_wait(mtl.frame_semaphore, DISPATCH_TIME_NOW) != 0) {
+        mtl.drawable = nil;
+        mtl.command_buffer = nil;
+        mtl.encoder = nil;
+        return;
+    }
 
     mtl.frame_index = (mtl.frame_index + 1) % MAX_FRAMES_IN_FLIGHT;
+    mtl.frame_slot_released[mtl.frame_index].store(false, std::memory_order_relaxed);
     mtl.current_vertex_buffer = 0;
     mtl.current_vertex_buffer_offset = 0;
 
@@ -603,7 +636,7 @@ static void gfx_metal_start_frame(void) {
         // No drawable (e.g. app in background): skip rendering this frame
         mtl.encoder = nil;
         mtl.command_buffer = nil;
-        dispatch_semaphore_signal(mtl.frame_semaphore);
+        release_frame_slot(mtl.frame_index);
         return;
     }
 
@@ -617,7 +650,7 @@ static void gfx_metal_start_frame(void) {
 
     mtl.command_buffer = [mtl.queue commandBuffer];
     if (mtl.command_buffer == nil) {
-        dispatch_semaphore_signal(mtl.frame_semaphore);
+        release_frame_slot(mtl.frame_index);
         metal_fatal("could not create a command buffer");
     }
 
@@ -633,7 +666,7 @@ static void gfx_metal_start_frame(void) {
 
     mtl.encoder = [mtl.command_buffer renderCommandEncoderWithDescriptor:pass];
     if (mtl.encoder == nil) {
-        dispatch_semaphore_signal(mtl.frame_semaphore);
+        release_frame_slot(mtl.frame_index);
         metal_fatal("could not create a render command encoder");
     }
     [mtl.encoder setCullMode:MTLCullModeNone];
@@ -728,13 +761,11 @@ void gfx_metal_present(void) {
         return;
     }
 
-    // Pace presentation to the render rate (logic rate times sub-frames);
-    // nextDrawable in start_frame blocks when the queue is full, throttling
-    // the game loop
-    double render_fps = GAME_FRAMERATE;
-#ifdef HIGH_FPS_PC
-    render_fps *= gRenderSubframes;
-#endif
+    // A completion handler can run before Core Animation releases its
+    // drawable. On device, retain the in-flight slot until presentation (or
+    // an error) so the next display callback cannot enter nextDrawable while
+    // all layer drawables are still owned.
+    const int frame_index = mtl.frame_index;
 
 #if defined(TARGET_IOS) && !TARGET_OS_SIMULATOR
     // Count only frames Core Animation confirms reached the device screen. A
@@ -744,68 +775,35 @@ void gfx_metal_present(void) {
         if (drawable.presentedTime > 0.0) {
             sPresentedFrameCount.fetch_add(1, std::memory_order_relaxed);
         }
+        release_frame_slot(frame_index);
     }];
 #endif
 
-#if TARGET_OS_SIMULATOR
-    // Simulator Metal doesn't honor the device's timed-presentation path.
-    // Space batched interpolation frames with a monotonic sleep instead.
-    {
-        static double next_present_s;
-        double interval = 1.0 / render_fps;
-        struct timespec ts;
-
-        clock_gettime(CLOCK_MONOTONIC, &ts);
-        double now_s = (double) ts.tv_sec + (double) ts.tv_nsec / 1e9;
-
-        if (next_present_s > now_s) {
-            double wait = next_present_s - now_s;
-            struct timespec rel = { (time_t) wait, (long) ((wait - (double) (time_t) wait) * 1e9) };
-            while (nanosleep(&rel, &rel) == -1 && errno == EINTR) {
-            }
-            // A relative sleep can overshoot when the host is busy. Measure
-            // where we actually woke rather than pretending the deadline was
-            // hit; otherwise late frames bank time and the next iterations
-            // arrive in a burst, disturbing both motion and audio queuing.
-            clock_gettime(CLOCK_MONOTONIC, &ts);
-            now_s = (double) ts.tv_sec + (double) ts.tv_nsec / 1e9;
-        }
-        // A stall longer than a frame (a level load) must not bank credit and
-        // come back as a burst of catch-up frames, so restart the schedule
-        // rather than let the deadline fall behind.
-        if (next_present_s < now_s - interval) {
-            next_present_s = now_s;
-        }
-        next_present_s += interval;
-    }
+#if defined(TARGET_IOS)
+    // CADisplayLink already fires on a display boundary and the app submits
+    // exactly one drawable from that callback. Present at the next opportunity;
+    // do not queue future timestamps that retain the layer's drawable pool.
     [mtl.command_buffer presentDrawable:mtl.drawable];
-#elif defined(TARGET_IOS)
-    // Schedule against absolute host deadlines. afterMinimumDuration chains
-    // every frame to the previous presentation; when ProMotion dynamically
-    // lowers its cadence those waits compound and hold up the next 30 Hz game
-    // tick. Absolute deadlines let Core Animation drop an interpolation frame
-    // it cannot display without ever turning that into slow-motion gameplay.
-    {
-        static double next_present_s;
-        static double previous_interval_s;
-        const double now_s = CACurrentMediaTime();
-        const double interval_s = 1.0 / render_fps;
-
-        if (next_present_s == 0.0
-            || fabs(previous_interval_s - interval_s) > 0.000001
-            || next_present_s < now_s - interval_s) {
-            next_present_s = now_s;
-        }
-        previous_interval_s = interval_s;
-        [mtl.command_buffer presentDrawable:mtl.drawable atTime:next_present_s];
-        next_present_s += interval_s;
-    }
 #else
-    [mtl.command_buffer presentDrawable:mtl.drawable afterMinimumDuration:1.0 / render_fps];
+    [mtl.command_buffer presentDrawable:mtl.drawable];
 #endif
     [mtl.command_buffer addCompletedHandler:^(id<MTLCommandBuffer> cb) {
-        (void) cb;
-        dispatch_semaphore_signal(mtl.frame_semaphore);
+        if (cb.status == MTLCommandBufferStatusError) {
+            uint32_t count = sCommandBufferErrorCount.fetch_add(1, std::memory_order_relaxed) + 1;
+            // A handful of errors is enough for a useful device log without
+            // risking the high-volume quarantine that hides later diagnostics.
+            if (count <= 4) {
+                const char *detail = cb.error != nil
+                    ? cb.error.localizedDescription.UTF8String : "(unknown)";
+                fprintf(stderr, "Metal command buffer failed: %s\n", detail);
+            }
+            release_frame_slot(frame_index);
+        }
+#if !defined(TARGET_IOS) || TARGET_OS_SIMULATOR
+        // The simulator does not expose reliable presentation feedback, and
+        // desktop layers are not driven by UIKit's display callback.
+        release_frame_slot(frame_index);
+#endif
     }];
     [mtl.command_buffer commit];
 

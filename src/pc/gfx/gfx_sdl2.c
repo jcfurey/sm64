@@ -40,6 +40,7 @@
 
 #ifdef TARGET_IOS
 #include "../controller/controller_touch.h"
+#include "game/options_menu.h"
 
 // Project extension carried by ios/patches/SDL2-2.30.7-uiscene.patch.
 // Values are fractions of the UIKit view, which we map onto the current
@@ -449,16 +450,8 @@ static void gfx_sdl_main_loop(void (*run_one_game_iter)(void)) {
 
 #ifdef TARGET_IOS
 static void SDLCALL gfx_sdl_ios_animation_callback(void *param) {
-    static double next_logic_s;
     static bool event_pump_reenabled;
     (void) param;
-    const double frequency = (double) SDL_GetPerformanceFrequency();
-    const double now_s = (double) SDL_GetPerformanceCounter() / frequency;
-#ifdef HIGH_FPS_PC
-    const double logic_period_s = 1.0 / GAME_FRAMERATE;
-#else
-    const double logic_period_s = 1.0 / 30.0;
-#endif
 
     // SDL disables its lifecycle observer after the app's main function
     // returns. The animation callback deliberately returns main to UIKit, so
@@ -468,22 +461,16 @@ static void SDLCALL gfx_sdl_ios_animation_callback(void *param) {
         event_pump_reenabled = true;
     }
 
-    // ProMotion is variable-rate: callbacks can arrive at 120, 80, 60, or a
-    // lower system-selected cadence. Advance game logic from real time rather
-    // than every N callbacks so a refresh-rate change cannot slow gameplay or
-    // audio. Never run catch-up ticks in a burst after a suspension or hitch.
-    if (next_logic_s == 0.0 || now_s - next_logic_s >= 0.2) {
-        next_logic_s = now_s;
-    }
-    if (now_s + 0.0005 < next_logic_s) {
+    // UIScene notifications synchronously flip this flag before suspension.
+    // Never submit GPU work from a stale display-link callback while inactive.
+    if (!ios_platform_is_app_active()) {
         return;
     }
 
+    // The game callback owns its independent logic/audio and presentation
+    // deadlines. Invoke it for every display refresh; it submits at most one
+    // drawable and may skip presentation to honor a lower cap.
     ios_run_one_game_iter();
-    next_logic_s += logic_period_s;
-    if (next_logic_s <= now_s) {
-        next_logic_s = now_s + logic_period_s;
-    }
 }
 #endif
 
@@ -541,50 +528,6 @@ static void quit_now(void) {
     exit(0);
 }
 
-// Parks the game loop while the app is in the background. Submitting GPU
-// work while suspended gets the app killed by the system, and spinning the
-// loop drains the battery for a game nobody is looking at, so block on the
-// event queue (which keeps pumping the platform run loop) until the system
-// brings us back.
-//
-// Everything else delivered while parked is consumed by this loop and never
-// reaches the normal handler, so anything it would have updated has to be
-// re-established on the way out rather than assumed unchanged.
-static void wait_for_foreground(void) {
-    SDL_Event event;
-
-#ifdef TARGET_IOS
-    ios_audio_session_set_app_active(false);
-#endif
-
-    while (SDL_WaitEvent(&event)) {
-        if (event.type == SDL_APP_WILLENTERFOREGROUND || event.type == SDL_APP_DIDENTERFOREGROUND) {
-            break;
-        }
-        if (event.type == SDL_APP_TERMINATING || event.type == SDL_QUIT) {
-            quit_now();
-        }
-    }
-
-#ifdef TARGET_IOS
-    ios_audio_session_set_app_active(true);
-
-    // Touch-cancel and finger-up events raised as iOS took the touch stream
-    // away were consumed above, so any finger still recorded as down would
-    // stay down forever, holding its button
-    touch_forget_fingers();
-
-    // A rotation while suspended raises resize events into the discarded
-    // stream; re-read the drawable and UIKit safe area instead.
-    update_touch_geometry();
-#endif
-#ifdef HIGH_FPS_PC
-    // Frame timings measured either side of a suspension say nothing about
-    // how well the device is keeping up
-    framerate_reset();
-#endif
-}
-
 static void gfx_sdl_handle_events(void) {
     SDL_Event event;
 #ifdef TARGET_IOS
@@ -596,16 +539,30 @@ static void gfx_sdl_handle_events(void) {
         switch (event.type) {
             case SDL_APP_WILLENTERBACKGROUND:
                 save_state_before_suspend();
+#ifdef TARGET_IOS
+                ios_audio_session_set_app_active(false);
+#endif
                 break;
             case SDL_APP_DIDENTERBACKGROUND:
-                wait_for_foreground();
+                // UIScene owns suspension. Never wait here: this function is
+                // called by CADisplayLink on UIKit's main thread.
                 break;
             case SDL_APP_TERMINATING:
                 quit_now();
                 break;
             case SDL_APP_LOWMEMORY:
             case SDL_APP_WILLENTERFOREGROUND:
+                break;
             case SDL_APP_DIDENTERFOREGROUND:
+#ifdef TARGET_IOS
+                touch_forget_fingers();
+                update_touch_geometry();
+                ios_audio_session_set_app_active(true);
+                fps_counter_reset();
+#endif
+#ifdef HIGH_FPS_PC
+                framerate_resume();
+#endif
                 break;
 #ifndef TARGET_WEB
             // Scancodes are broken in Emscripten SDL2: https://bugzilla.libsdl.org/show_bug.cgi?id=3259

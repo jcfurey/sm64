@@ -250,7 +250,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 7YGTR289AX;
 				EXECUTABLE_NAME = sm64;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -271,7 +271,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 7YGTR289AX;
 				EXECUTABLE_NAME = sm64;
 				GENERATE_INFOPLIST_FILE = NO;

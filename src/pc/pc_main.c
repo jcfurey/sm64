@@ -9,6 +9,7 @@
 #ifdef TARGET_IOS
 // SDL provides the UIKit application entry point and redefines main below
 #include <TargetConditionals.h>
+#include <SDL2/SDL.h>
 #include <SDL2/SDL_main.h>
 #endif
 
@@ -73,10 +74,11 @@ void set_vblank_handler(UNUSED s32 index, UNUSED struct VblankHandler *handler, 
 }
 
 static uint8_t inited = 0;
+static bool sRenderSuppressed;
 
 #include "game/game_init.h" // for gGlobalTimer
 void exec_display_list(struct SPTask *spTask) {
-    if (!inited) {
+    if (!inited || sRenderSuppressed) {
         return;
     }
     gfx_run((Gfx *)spTask->task.t.data_ptr);
@@ -99,21 +101,35 @@ s32 gCurrentFPS = 0;
 
 static s32 sFPSAccum;
 static long long sFPSWindowStartMs;
+#if defined(TARGET_IOS) && defined(ENABLE_METAL) && !TARGET_OS_SIMULATOR
+static u64 sFPSLastPresentedFrames;
+#endif
+
+void fps_counter_reset(void) {
+    gCurrentFPS = 0;
+    sFPSAccum = 0;
+    sFPSWindowStartMs = 0;
+#if defined(TARGET_IOS) && defined(ENABLE_METAL) && !TARGET_OS_SIMULATOR
+    sFPSLastPresentedFrames = gfx_metal_presented_frame_count();
+#endif
+}
 
 static void fps_count_frames(s32 frames) {
     long long now = framerate_monotonic_ms();
 #if defined(TARGET_IOS) && defined(ENABLE_METAL) && !TARGET_OS_SIMULATOR
-    static u64 last_presented_frames;
     u64 presented_frames = gfx_metal_presented_frame_count();
 
-    frames = (s32) (presented_frames - last_presented_frames);
-    last_presented_frames = presented_frames;
+    frames = (s32) (presented_frames - sFPSLastPresentedFrames);
+    sFPSLastPresentedFrames = presented_frames;
 #endif
     sFPSAccum += frames;
     if (sFPSWindowStartMs == 0) {
         sFPSWindowStartMs = now;
     } else if (now - sFPSWindowStartMs >= 1000) {
         gCurrentFPS = (s32)(sFPSAccum * 1000 / (now - sFPSWindowStartMs));
+#ifdef HIGH_FPS_PC
+        framerate_note_presented_rate(gCurrentFPS, GAME_FRAMERATE * gRenderSubframes);
+#endif
         sFPSAccum = 0;
         sFPSWindowStartMs = now;
     }
@@ -162,6 +178,113 @@ static void patch_interpolations(s32 v) {
 }
 #endif
 
+static void produce_audio_for_logic_tick(void) {
+    int samples_left = audio_api->buffered();
+    u32 num_audio_samples = samples_left < audio_api->get_desired_buffered() ? SAMPLES_HIGH : SAMPLES_LOW;
+    s16 audio_buffer[SAMPLES_HIGH * 2 * 2];
+
+    for (int i = 0; i < 2; i++) {
+        create_next_audio_buffer(audio_buffer + i * (num_audio_samples * 2), num_audio_samples);
+    }
+    audio_api->play((u8 *)audio_buffer, 2 * num_audio_samples * 4);
+}
+
+#ifdef TARGET_IOS
+// iOS receives a callback for every display refresh. Game logic and audio use
+// their own real-time 30 Hz deadline, while each callback submits at most one
+// drawable. A bounded catch-up preserves game time if ProMotion temporarily
+// chooses a rate below 30 Hz without replaying an unbounded suspension gap.
+static void produce_one_frame(void) {
+    static double next_logic_s;
+    static double next_render_s;
+    static s32 render_variant;
+    static s32 previous_subframes;
+    const double frequency = (double) SDL_GetPerformanceFrequency();
+    const double now_s = (double) SDL_GetPerformanceCounter() / frequency;
+    const double logic_period_s = 1.0 / GAME_FRAMERATE;
+    const s32 max_logic_catchup = 4;
+    s32 logic_ticks = 0;
+
+    // Poll input and refresh safe-area/drawable geometry even on callbacks
+    // skipped by a lower frame cap. This does not acquire a Metal drawable.
+    gfx_start_frame();
+
+    if (next_logic_s == 0.0 || now_s - next_logic_s >= 0.25) {
+        next_logic_s = now_s;
+        next_render_s = now_s;
+    }
+
+    while (now_s + 0.0005 >= next_logic_s && logic_ticks < max_logic_catchup) {
+#ifdef HIGH_FPS_PC
+        framerate_note_logic_frame(framerate_monotonic_ms());
+        gRenderSubframes = framerate_choose_subframes();
+        patch_interpolations_reset();
+#endif
+
+        // The simulation builds the next display list, but presentation is
+        // owned by this display callback below. This is what prevents a single
+        // 30 Hz tick from acquiring four CAMetalLayer drawables in a batch.
+        sRenderSuppressed = true;
+        game_loop_one_iteration();
+        sRenderSuppressed = false;
+        produce_audio_for_logic_tick();
+
+        render_variant = 0;
+        logic_ticks++;
+        next_logic_s += logic_period_s;
+    }
+
+    if (next_logic_s <= now_s) {
+        // Four ticks cover the lowest 10 Hz cadence supported by ProMotion.
+        // Anything still behind is a discontinuity, not useful catch-up work.
+        next_logic_s = now_s + logic_period_s;
+    }
+
+    if (gGfxSPTask == NULL) {
+        return;
+    }
+
+#ifdef HIGH_FPS_PC
+    {
+        const double render_period_s = logic_period_s / gRenderSubframes;
+
+        if (next_render_s == 0.0 || previous_subframes != gRenderSubframes
+            || next_render_s < now_s - render_period_s) {
+            next_render_s = now_s;
+        }
+        previous_subframes = gRenderSubframes;
+        if (now_s + 0.0005 < next_render_s) {
+            return;
+        }
+
+        if (render_variant >= gRenderSubframes) {
+            render_variant = gRenderSubframes - 1;
+        }
+        patch_interpolations(render_variant);
+        exec_display_list(gGfxSPTask);
+        gfx_end_frame();
+        fps_count_frames(1);
+
+        if (render_variant + 1 < gRenderSubframes) {
+            render_variant++;
+        }
+        next_render_s += render_period_s;
+        if (next_render_s <= now_s) {
+            next_render_s = now_s + render_period_s;
+        }
+    }
+#else
+    // The non-interpolated build presents only when it advanced the 30 Hz
+    // simulation; intermediate display callbacks exist solely to pump events.
+    if (logic_ticks == 0) {
+        return;
+    }
+    exec_display_list(gGfxSPTask);
+    gfx_end_frame();
+    fps_count_frames(1);
+#endif
+}
+#else
 void produce_one_frame(void) {
     gfx_start_frame();
 #ifdef HIGH_FPS_PC
@@ -170,21 +293,7 @@ void produce_one_frame(void) {
     patch_interpolations_reset();
 #endif
     game_loop_one_iteration();
-    
-    int samples_left = audio_api->buffered();
-    u32 num_audio_samples = samples_left < audio_api->get_desired_buffered() ? SAMPLES_HIGH : SAMPLES_LOW;
-    //printf("Audio samples: %d %u\n", samples_left, num_audio_samples);
-    s16 audio_buffer[SAMPLES_HIGH * 2 * 2];
-    for (int i = 0; i < 2; i++) {
-        /*if (audio_cnt-- == 0) {
-            audio_cnt = 2;
-        }
-        u32 num_audio_samples = audio_cnt < 2 ? 528 : 544;*/
-        create_next_audio_buffer(audio_buffer + i * (num_audio_samples * 2), num_audio_samples);
-    }
-    //printf("Audio samples before submitting: %d\n", audio_api->buffered());
-    audio_api->play((u8 *)audio_buffer, 2 * num_audio_samples * 4);
-    
+    produce_audio_for_logic_tick();
     gfx_end_frame();
 
 #ifdef HIGH_FPS_PC
@@ -199,6 +308,7 @@ void produce_one_frame(void) {
     fps_count_frames(1);
 #endif
 }
+#endif
 
 #ifdef TARGET_WEB
 static void em_main_loop(void) {

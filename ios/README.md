@@ -7,10 +7,10 @@ upside-down portrait where UIKit permits it, or either landscape direction.
 
 Rendering uses **Metal** by default — Apple's modern graphics API — through a
 backend that compiles a Metal pipeline for each N64 color-combiner mode at
-runtime and paces presentation to the game's 30 fps with
-`presentDrawable:afterMinimumDuration:`. An OpenGL ES 2.0 fallback renderer
-is kept available with `ENABLE_OPENGL=1` (GLES is deprecated on iOS but still
-functional; useful for A/B-testing rendering issues).
+runtime. `CADisplayLink` paces the renderer, and each callback submits no more
+than one drawable. An OpenGL ES 2.0 fallback renderer is kept available with
+`ENABLE_OPENGL=1` (GLES is deprecated on iOS but still functional; useful for
+A/B-testing rendering issues).
 
 Because the game's assets are extracted from your ROM into the binary at build
 time, **the resulting app contains copyrighted game data — build it for
@@ -107,11 +107,11 @@ A command-line archive can be created without uploading:
 ```
 xcodebuild -project ios/SM64.xcodeproj -scheme "SM64 US" \
   -configuration Release -destination "generic/platform=iOS" \
-  -archivePath "$PWD/build/archives/SM64-us-1.0-2.xcarchive" \
-  CURRENT_PROJECT_VERSION=2 -allowProvisioningUpdates archive
+  -archivePath "$PWD/build/archives/SM64-us-1.0-3.xcarchive" \
+  CURRENT_PROJECT_VERSION=3 -allowProvisioningUpdates archive
 
 tools/porttest/check-ios-archive.py \
-  "$PWD/build/archives/SM64-us-1.0-2.xcarchive"
+  "$PWD/build/archives/SM64-us-1.0-3.xcarchive"
 ```
 
 The archive check verifies the bundled metadata and privacy declarations, the
@@ -126,7 +126,7 @@ the following command **uploads the archive to App Store Connect**:
 
 ```
 xcodebuild -exportArchive \
-  -archivePath "$PWD/build/archives/SM64-us-1.0-2.xcarchive" \
+  -archivePath "$PWD/build/archives/SM64-us-1.0-3.xcarchive" \
   -exportOptionsPlist ios/ExportOptions-TestFlight.plist \
   -exportPath "$PWD/build/testflight-upload" -allowProvisioningUpdates
 ```
@@ -236,7 +236,7 @@ Debug Features screen, B returns to the main options screen. Settings persist
 in the app's config file:
 
 - **Frame Rate** — Auto (match the display: 120 on ProMotion, 60 otherwise),
-  or a fixed 30/60/90/120 cap. Game logic always runs at its native 30 Hz;
+  or a fixed 30/60/120 cap. Game logic always runs at its native 30 Hz;
   higher rates render interpolated frames between logic frames. The row
   shows the rate actually being rendered when it differs from the one
   selected — a cap that does not divide the display's refresh rate is
@@ -284,25 +284,28 @@ handlers.
 The app asks SDL's CoreAudio backend to use an `Ambient` AVAudioSession: it
 respects the silent switch and allows music or podcasts from another app to
 continue. SDL remains the single owner of session activation and interruption
-handling; the app pauses or flushes its queued audio on background, route, and
-media-service transitions so stale samples are not replayed on resume.
+handling. The app pauses and primes its queued audio on background and route
+transitions, and fully reopens the SDL/CoreAudio device after a media-services
+reset because iOS invalidates the old queue.
 
 ## Frame pacing under load
 
 On iOS, SDL's `CADisplayLink` calls the port at the fastest cadence currently
-available from the variable-rate display. A monotonic 30 Hz deadline inside
-that callback controls game logic and audio, so ProMotion switching among
-120, 80, 60, or lower system-selected rates cannot change game speed.
-Interpolated Metal frames use absolute host presentation times; Core Animation
-can drop one it cannot show without chaining the delay into the next logic
-tick.
+available from the variable-rate display and requests an iOS 15 frame-rate range
+from 30 Hz through the screen maximum. A monotonic 30 Hz deadline controls game
+logic and audio. If the system temporarily supplies fewer than 30 callbacks,
+up to four fixed logic ticks can be recovered in one callback, covering every
+10–120 Hz rate supported by ProMotion without making sustained low display
+cadence turn into slow-motion gameplay. A suspension or quarter-second hitch
+resets the deadline instead of replaying an unbounded backlog.
 
-Sub-frames are still generated as one batch for each logic frame. If producing
-that batch itself blocks the callback, the port measures the resulting logic
-lateness and gives up a sub-frame after sustained overload — 120 fps steps
-down to 60, and 60 to 30 — earning it back after about ten seconds of clean
-frames. Brief hitches such as level loads are ignored rather than counted
-against the frame rate.
+Each callback presents at most one interpolation variant, so a 120 fps request
+never acquires four future Metal drawables in one main-thread batch. The port
+also compares the requested rate with Core Animation-confirmed presentations;
+if the screen displays only 60 of 120 requested frames, the ceiling drops to 60
+immediately. CPU-side logic lateness remains a second backoff signal. A learned
+ceiling survives scene suspension, and the app probes upward only after a clean
+stretch rather than recreating full GPU load on every resume.
 
 ## Build options
 
@@ -328,9 +331,9 @@ or a shader that fails to compile now renders as magenta rather than
 terminating the process.
 
 Game logic always runs at the native 30 Hz; with `HIGH_FPS=1` (the default)
-each logic frame is rendered up to 4 times with everything interpolated
-between the previous and current game state, reaching a real 120 rendered
-frames per second on ProMotion displays. `HIGH_FPS=0` builds the vanilla
+each logic frame supplies up to four display-refresh callbacks with everything
+interpolated between the previous and current game state, reaching a real 120
+rendered frames per second on ProMotion displays. `HIGH_FPS=0` builds the vanilla
 30 fps port. Wireframe view and the 240p half of retro mode are Metal
 features; the GLES fallback ignores them (collision view and 4:3 work
 everywhere).

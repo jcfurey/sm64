@@ -17,6 +17,10 @@ void audio_sdl_pause(bool pause);
 // alive while iOS switches between speakers, headphones, and Bluetooth.
 void audio_sdl_route_changed(void);
 
+// Recreates the CoreAudio-backed SDL device after mediaserverd resets. Apple
+// invalidates existing audio queues in this transition; clearing is not enough.
+void audio_sdl_media_services_reset(void);
+
 #ifdef __cplusplus
 }
 #endif

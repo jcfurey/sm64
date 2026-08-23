@@ -35,7 +35,7 @@
      }
  
      /* free the memory we used to hold copies of argc and argv */
-@@ -342,7 +347,120 @@
+@@ -342,7 +347,140 @@
  #endif /* !TARGET_OS_TV */
  
  @end
@@ -107,6 +107,26 @@
 +
 +    SDL_SetMainReady();
 +    [self performSelector:@selector(postFinishLaunch) withObject:nil afterDelay:0.0];
++}
++
++- (void)sceneDidBecomeActive:(UIScene *)scene
++{
++    SDL_OnApplicationDidBecomeActive();
++}
++
++- (void)sceneWillResignActive:(UIScene *)scene
++{
++    SDL_OnApplicationWillResignActive();
++}
++
++- (void)sceneDidEnterBackground:(UIScene *)scene
++{
++    SDL_OnApplicationDidEnterBackground();
++}
++
++- (void)sceneWillEnterForeground:(UIScene *)scene
++{
++    SDL_OnApplicationWillEnterForeground();
 +}
 +
 +- (void)sceneDidDisconnect:(UIScene *)scene
@@ -286,3 +306,73 @@
  
  int SDL_iPhoneSetAnimationCallback(SDL_Window * window, int interval, void (*callback)(void*), void *callbackParam)
  {
+--- a/src/video/uikit/SDL_uikitevents.m
++++ b/src/video/uikit/SDL_uikitevents.m
+@@ -29,6 +29,7 @@
+ #include "SDL_uikitopengles.h"
+ #include "SDL_uikitvideo.h"
+ #include "SDL_uikitwindow.h"
++#include "SDL_uikitappdelegate.h"
+ 
+ #import <Foundation/Foundation.h>
+ 
+@@ -51,12 +52,20 @@
+ - (void)eventPumpChanged
+ {
+     NSNotificationCenter *notificationCenter = NSNotificationCenter.defaultCenter;
++    BOOL sceneOwnsLifecycle = NO;
++    if (@available(iOS 13.0, *)) {
++        sceneOwnsLifecycle = SDLUIKit_GetWindowScene() != nil;
++    }
+     if (UIKit_EventPumpEnabled && !self.isObservingNotifications) {
+         self.isObservingNotifications = YES;
+-        [notificationCenter addObserver:self selector:@selector(applicationDidBecomeActive) name:UIApplicationDidBecomeActiveNotification object:nil];
+-        [notificationCenter addObserver:self selector:@selector(applicationWillResignActive) name:UIApplicationWillResignActiveNotification object:nil];
+-        [notificationCenter addObserver:self selector:@selector(applicationDidEnterBackground) name:UIApplicationDidEnterBackgroundNotification object:nil];
+-        [notificationCenter addObserver:self selector:@selector(applicationWillEnterForeground) name:UIApplicationWillEnterForegroundNotification object:nil];
++        if (!sceneOwnsLifecycle) {
++            /* The UIWindowSceneDelegate sends these events on iOS 13+. Do not
++             * also translate application notifications into duplicates. */
++            [notificationCenter addObserver:self selector:@selector(applicationDidBecomeActive) name:UIApplicationDidBecomeActiveNotification object:nil];
++            [notificationCenter addObserver:self selector:@selector(applicationWillResignActive) name:UIApplicationWillResignActiveNotification object:nil];
++            [notificationCenter addObserver:self selector:@selector(applicationDidEnterBackground) name:UIApplicationDidEnterBackgroundNotification object:nil];
++            [notificationCenter addObserver:self selector:@selector(applicationWillEnterForeground) name:UIApplicationWillEnterForegroundNotification object:nil];
++        }
+         [notificationCenter addObserver:self selector:@selector(applicationWillTerminate) name:UIApplicationWillTerminateNotification object:nil];
+         [notificationCenter addObserver:self selector:@selector(applicationDidReceiveMemoryWarning) name:UIApplicationDidReceiveMemoryWarningNotification object:nil];
+ #if !TARGET_OS_TV
+@@ -261,7 +270,10 @@
+ 
+ static void UpdateScrollDirection(void)
+ {
+-#if 0 /* This code doesn't work for some reason */
++#if TARGET_OS_IOS || TARGET_OS_TV
++    /* Apps may not read another application's global preferences. */
++    mouse_scroll_direction = SDL_MOUSEWHEEL_FLIPPED;
++#elif 0 /* This code doesn't work for some reason */
+     NSUserDefaults *userDefaults = [NSUserDefaults standardUserDefaults];
+     if ([userDefaults boolForKey:@"com.apple.swipescrolldirection"]) {
+         mouse_scroll_direction = SDL_MOUSEWHEEL_FLIPPED;
+--- a/src/video/uikit/SDL_uikitviewcontroller.m
++++ b/src/video/uikit/SDL_uikitviewcontroller.m
+@@ -163,10 +163,17 @@
+ #ifdef __IPHONE_10_3
+     SDL_WindowData *data = (__bridge SDL_WindowData *) window->driverdata;
+ 
+-    if ([displayLink respondsToSelector:@selector(preferredFramesPerSecond)]
+-        && data != nil && data.uiwindow != nil
++    if (data != nil && data.uiwindow != nil
+         && [data.uiwindow.screen respondsToSelector:@selector(maximumFramesPerSecond)]) {
+-        displayLink.preferredFramesPerSecond = data.uiwindow.screen.maximumFramesPerSecond / animationInterval;
++        NSInteger maximum = data.uiwindow.screen.maximumFramesPerSecond / animationInterval;
++        if (@available(iOS 15.0, *)) {
++            /* Game logic requires at least 30 callbacks per second. Core
++             * Animation may still choose any supported rate up to maximum. */
++            NSInteger minimum = MIN(30, maximum);
++            displayLink.preferredFrameRateRange = CAFrameRateRangeMake(minimum, maximum, maximum);
++        } else if ([displayLink respondsToSelector:@selector(preferredFramesPerSecond)]) {
++            displayLink.preferredFramesPerSecond = maximum;
++        }
+     } else
+ #endif
+     {

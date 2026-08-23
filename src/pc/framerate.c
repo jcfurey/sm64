@@ -39,12 +39,12 @@ s32 gSubframesLocked = 0;
 //------------------------------------------------------------------------------
 // Adaptive sub-frame backoff
 //
-// Sub-frames are rendered inside the same logic frame that the game runs
-// in, so a device that cannot draw them all does not simply show fewer
-// frames: the logic frames themselves start arriving late and the whole
-// game runs in slow motion. Watch how long each logic frame actually takes
-// and give up a sub-frame before that happens, earning it back only after a
-// long clean stretch so one hitch does not cost the frame rate for good.
+// On batch-driven backends, a device that cannot draw all requested sub-frames
+// can delay logic and make the whole game run in slow motion. The iOS
+// display-linked backend submits only one drawable per callback, but its logic
+// timing can still expose CPU overload. Watch the logic clock on both paths and
+// give up a sub-frame after sustained lateness; presentation feedback below
+// independently catches frames Core Animation drops after submission.
 //------------------------------------------------------------------------------
 
 // A logic frame should take 1/GAME_FRAMERATE seconds; allow a fifth of that
@@ -63,8 +63,10 @@ s32 gSubframesLocked = 0;
 #define FORGIVE_INTERVAL 60
 
 static s32 sAdaptiveMax = MAX_SUBFRAMES;
+static s32 sPresentationMax = MAX_SUBFRAMES;
 static s32 sLateFrames;
 static s32 sGoodStreak;
+static s32 sPresentationGoodWindows;
 static long long sPrevFrameStartMs;
 
 void framerate_note_logic_frame(long long frame_start) {
@@ -105,13 +107,54 @@ void framerate_note_logic_frame(long long frame_start) {
 // about how well the device is keeping up.
 void framerate_reset(void) {
     sAdaptiveMax = MAX_SUBFRAMES;
+    sPresentationMax = MAX_SUBFRAMES;
     sLateFrames = 0;
     sGoodStreak = 0;
+    sPresentationGoodWindows = 0;
     sPrevFrameStartMs = 0;
 }
 
+void framerate_resume(void) {
+    // Keep ceilings learned from this physical device. Only timing samples
+    // spanning the suspension are invalid; immediately retrying 120 Hz after
+    // every notification or lock-screen visit recreates the thermal load.
+    sLateFrames = 0;
+    sGoodStreak = 0;
+    sPresentationGoodWindows = 0;
+    sPrevFrameStartMs = 0;
+}
+
+void framerate_note_presented_rate(s32 presented_fps, s32 requested_fps) {
+    const s32 tolerance_fps = 3;
+    const s32 recovery_windows = 10;
+
+    if (presented_fps < 0 || requested_fps < GAME_FRAMERATE) {
+        return;
+    }
+
+    if (presented_fps + tolerance_fps < requested_fps) {
+        s32 sustainable = (presented_fps + tolerance_fps) / GAME_FRAMERATE;
+        if (sustainable < 1) {
+            sustainable = 1;
+        }
+        if (sustainable < sPresentationMax) {
+            sPresentationMax = sustainable;
+        }
+        sPresentationGoodWindows = 0;
+        return;
+    }
+
+    // Once the current rate has been delivered cleanly for ten seconds, allow
+    // a cautious probe upward. A failed probe is corrected by the next window.
+    if (sPresentationMax < MAX_SUBFRAMES
+        && ++sPresentationGoodWindows >= recovery_windows) {
+        sPresentationGoodWindows = 0;
+        sPresentationMax++;
+    }
+}
+
 s32 framerate_adaptive_max(void) {
-    return sAdaptiveMax;
+    return sAdaptiveMax < sPresentationMax ? sAdaptiveMax : sPresentationMax;
 }
 
 // Chooses this frame's sub-frame count: the user's frame cap and retro
@@ -141,6 +184,9 @@ s32 framerate_choose_subframes(void) {
     }
     if (want > sAdaptiveMax) {
         want = sAdaptiveMax;
+    }
+    if (want > sPresentationMax) {
+        want = sPresentationMax;
     }
     while (want > 1 && max % want != 0) {
         want--;

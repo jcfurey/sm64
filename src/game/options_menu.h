@@ -10,6 +10,10 @@
 // successful submissions.
 extern s32 gCurrentFPS;
 
+// Clears the one-second presentation window after a cap change or scene
+// transition so the menu never labels the new state with stale samples.
+void fps_counter_reset(void);
+
 // Updates and renders the options menu and its Debug Features submenu. Opened
 // by pressing R on the pause screen. Returns TRUE while a menu is open, in
 // which case the pause menu underneath must not process this frame's input or

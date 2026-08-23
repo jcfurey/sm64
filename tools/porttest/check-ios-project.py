@@ -19,6 +19,7 @@ EXPECTED_PRIVACY_REASONS = {
 }
 EXPECTED_US_BUNDLE_ID = "com.jcfurey.sm64.us"
 EXPECTED_US_TEAM = "7YGTR289AX"
+EXPECTED_US_BUILD = 3
 EXPECTED_MINIMUM_IOS = "15.0"
 
 
@@ -69,8 +70,38 @@ def main() -> None:
     recorded = re.search(r'2\.30\.7\) SDL2_SHA256="([0-9a-f]{64})"', build_script)
     if recorded is None or recorded.group(1) != EXPECTED_SDL_SHA256:
         fail("the authenticated SDL 2.30.7 checksum is missing or changed")
-    if not (IOS / "patches/SDL2-2.30.7-uiscene.patch").is_file():
+    sdl_patch_path = IOS / "patches/SDL2-2.30.7-uiscene.patch"
+    if not sdl_patch_path.is_file():
         fail("the SDL 2.30.7 UIScene patch is missing")
+    sdl_patch = sdl_patch_path.read_text(encoding="utf-8")
+    for required in (
+        "sceneDidBecomeActive:(UIScene *)scene",
+        "sceneWillResignActive:(UIScene *)scene",
+        "sceneDidEnterBackground:(UIScene *)scene",
+        "sceneWillEnterForeground:(UIScene *)scene",
+        "preferredFrameRateRange = CAFrameRateRangeMake(minimum, maximum, maximum)",
+        "mouse_scroll_direction = SDL_MOUSEWHEEL_FLIPPED",
+    ):
+        if required not in sdl_patch:
+            fail(f"the SDL UIScene patch is missing runtime behavior: {required}")
+
+    window_backend = (ROOT / "src/pc/gfx/gfx_sdl2.c").read_text(encoding="utf-8")
+    if "SDL_WaitEvent" in window_backend:
+        fail("the iOS display callback can still enter SDL_WaitEvent")
+    if "ios_platform_is_app_active()" not in window_backend:
+        fail("the iOS display callback does not return while its scene is inactive")
+
+    metal_backend = (ROOT / "src/pc/gfx/gfx_metal.mm").read_text(encoding="utf-8")
+    if "dispatch_semaphore_wait(mtl.frame_semaphore, DISPATCH_TIME_NOW)" not in metal_backend:
+        fail("the Metal display callback can still wait indefinitely for an in-flight slot")
+    if "presentDrawable:mtl.drawable atTime:" in metal_backend \
+            or "presentDrawable:mtl.drawable afterMinimumDuration:" in metal_backend:
+        fail("Metal still queues future presentations from a display callback")
+
+    main_loop = (ROOT / "src/pc/pc_main.c").read_text(encoding="utf-8")
+    if "const s32 max_logic_catchup = 4;" not in main_loop \
+            or "produce_audio_for_logic_tick();" not in main_loop:
+        fail("the iOS loop has lost its bounded independent logic/audio clock")
 
     project = (IOS / "SM64.xcodeproj/project.pbxproj").read_text(encoding="utf-8")
     if project.count(f"PRODUCT_BUNDLE_IDENTIFIER = {EXPECTED_US_BUNDLE_ID};") != 2:
@@ -87,7 +118,7 @@ def main() -> None:
         if match is None:
             fail("a US target configuration has no numeric build number")
         us_build_versions.append(int(match.group(1)))
-    if len(set(us_build_versions)) != 1 or us_build_versions[0] < 2:
+    if len(set(us_build_versions)) != 1 or us_build_versions[0] != EXPECTED_US_BUILD:
         fail(f"the US target build numbers are inconsistent or stale: {us_build_versions}")
     if project.count(f"IPHONEOS_DEPLOYMENT_TARGET = {EXPECTED_MINIMUM_IOS};") != 2:
         fail("the Xcode project does not consistently require iOS 15")
@@ -120,7 +151,7 @@ def main() -> None:
             or export.get("uploadSymbols") is not True:
         fail("the internal TestFlight export options are missing or malformed")
 
-    print("iOS project: distribution metadata, privacy, AppIcon, SDL checksum, and UIScene patch passed")
+    print("iOS project: distribution metadata, privacy, AppIcon, SDL lifecycle, and pacing checks passed")
 
 
 if __name__ == "__main__":

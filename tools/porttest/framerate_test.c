@@ -69,6 +69,18 @@ int main(void) {
     run(3000, 33);
     CHECK(framerate_adaptive_max() == MAX_SUBFRAMES, "...a clean stretch restores it");
 
+    printf("\npresentation feedback\n");
+
+    reset();
+    framerate_note_presented_rate(60, 120);
+    CHECK(framerate_adaptive_max() == 2, "60 presented from 120 requests backs off");
+    framerate_resume();
+    CHECK(framerate_adaptive_max() == 2, "resume preserves the learned ceiling");
+    { int i; for (i = 0; i < 10; i++) framerate_note_presented_rate(60, 60); }
+    CHECK(framerate_adaptive_max() == 3, "ten clean windows allow a cautious probe");
+    framerate_note_presented_rate(60, 120);
+    CHECK(framerate_adaptive_max() == 2, "a failed probe backs off immediately");
+
     // However bad it gets, one render per logic frame is the floor
     reset(); run(50000, 150);
     CHECK(framerate_adaptive_max() == 1, "catastrophic load still floors at 1");

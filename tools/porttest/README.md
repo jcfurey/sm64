@@ -22,20 +22,21 @@ abandons a write partway through and checks the previous contents survive.
 
 ## `framerate_test`
 
-Covers the frame pacing policy in `src/pc/framerate.c`: the adaptive
-sub-frame backoff and the sub-frame count selection.
+Covers the frame pacing policy in `src/pc/framerate.c`: CPU-lateness and
+confirmed-presentation backoff, learned-ceiling preservation across resume,
+and sub-frame count selection.
 
-Sub-frames are rendered inside the same 1/30 s that the game logic runs in,
-so a device that cannot draw them all falls behind on *logic* frames and the
-game runs in slow motion rather than merely looking choppier. The policy
-watches frame timings and lowers the ceiling before that happens. Getting a
-device to thermally throttle on demand is impractical, so the test drives
-the policy with synthetic timings — sustained overload, an isolated level
-load stall, occasional hitches, and recovery.
+On iOS, display callbacks submit one sub-frame at a time. The policy watches
+both logic timing and the number of frames Core Animation confirms reached the
+screen, so invisible presentation drops can lower the GPU workload before they
+turn into thermal throttling. Getting a device to throttle on demand is
+impractical, so the test drives the policy with synthetic timings — sustained
+overload, dropped presentations, suspension, isolated hitches, and recovery.
 
-The selection tests also pin down behavior that is easy to get wrong: a
-frame cap has to divide the display's refresh multiple or vsync pacing goes
-uneven, so 90 fps on a 120 Hz display deliberately rounds down to 60.
+The selection tests also preserve compatibility with old configuration files:
+a legacy 90 fps cap has to divide the display's refresh multiple, so on a
+120 Hz display it deliberately rounds down to 60. The user-facing menu no
+longer offers that misleading choice.
 
 ## `touch_layout_test`
 

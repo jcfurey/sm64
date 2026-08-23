@@ -4,7 +4,8 @@
 #include <stdbool.h>
 
 extern bool         configFullscreen;
-// Frame rate cap: 0 = match the display, otherwise 30/60/90/120
+// Frame rate cap: 0 = match the display, otherwise 30/60/120. Legacy configs
+// containing 90 remain accepted and are paced at the nearest even divisor.
 extern unsigned int configFrameCap;
 // 0 = normal, 1 = wireframe, 2 = collision surfaces
 extern unsigned int configViewMode;

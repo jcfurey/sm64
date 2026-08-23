@@ -85,7 +85,7 @@ struct OptionDef {
     s32 numChoices;
 };
 
-static const char *sChoicesFrameCap[] = { "AUTO", "30", "60", "90", "120" };
+static const char *sChoicesFrameCap[] = { "AUTO", "30", "60", "120" };
 static const char *sChoicesViewMode[] = { "NORMAL", "WIREFRAME", "COLLISION" };
 static const char *sChoicesOffOn[]    = { "OFF", "ON" };
 static const char *sChoicesOnOff[]    = { "ON", "OFF" };
@@ -252,8 +252,10 @@ static s32 opt_get(s32 id) {
             switch (configFrameCap) {
                 case 30:  return 1;
                 case 60:  return 2;
-                case 90:  return 3;
-                case 120: return 4;
+                // Older configs may contain 90. It was always rounded to 60
+                // on 120 Hz iPhones, so normalize its menu representation.
+                case 90:  return 2;
+                case 120: return 3;
                 default:  return 0;
             }
         case OPT_VIEW_MODE:  return configViewMode > 2 ? 0 : (s32) configViewMode;
@@ -293,11 +295,15 @@ static s32 opt_get(s32 id) {
 }
 
 static void opt_set(s32 id, s32 value) {
-    static const unsigned int frameCaps[] = { 0, 30, 60, 90, 120 };
+    static const unsigned int frameCaps[] = { 0, 30, 60, 120 };
 
     switch (id) {
         case OPT_FRAME_CAP:
             configFrameCap = frameCaps[value];
+#ifdef HIGH_FPS_PC
+            framerate_reset();
+            fps_counter_reset();
+#endif
             break;
         case OPT_VIEW_MODE:
             configViewMode = value;
