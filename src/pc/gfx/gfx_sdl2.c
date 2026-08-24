@@ -76,6 +76,12 @@ static bool (*on_key_up_callback)(int scancode);
 static void (*on_all_keys_up_callback)(void);
 #ifdef TARGET_IOS
 static void (*ios_run_one_game_iter)(void);
+
+// Display refreshes per invocation of the game callback. SDL registers the
+// CADisplayLink with this interval, so it is how many panel refreshes pass
+// between wakeups.
+static int ios_display_interval = 1;
+static int ios_wanted_display_interval = 1;
 static void SDLCALL gfx_sdl_ios_animation_callback(void *param);
 #endif
 
@@ -449,6 +455,41 @@ static void gfx_sdl_main_loop(void (*run_one_game_iter)(void)) {
 }
 
 #ifdef TARGET_IOS
+// Deferred: SDL reconfigures the display link by invalidating and recreating
+// it, which must not happen inside the callback that link is dispatching.
+static void ios_apply_display_interval(void) {
+    if (ios_wanted_display_interval == ios_display_interval || wnd == NULL) {
+        return;
+    }
+    ios_display_interval = ios_wanted_display_interval;
+    SDL_iPhoneSetAnimationCallback(wnd, ios_display_interval,
+                                   gfx_sdl_ios_animation_callback, NULL);
+}
+
+// The display callback fires once per panel refresh, but the game only draws
+// GAME_FRAMERATE * gRenderSubframes frames per second. On a 120 Hz panel with
+// a 30 fps cap that left three of every four wakeups polling input and
+// returning without rendering. Each of those is a scheduler event and a
+// main-thread resume that keeps the SoC out of its deeper idle states, so ask
+// UIKit for the cadence actually being drawn. The ratio is exact: the frame
+// cap is snapped to a divisor of gMaxSubframes for this same reason.
+static void ios_sync_display_interval(void) {
+#ifdef HIGH_FPS_PC
+    int want = 1;
+
+    if (gMaxSubframes > 0 && gRenderSubframes > 0) {
+        want = gMaxSubframes / gRenderSubframes;
+    }
+    if (want < 1) {
+        want = 1;
+    }
+    if (want != ios_wanted_display_interval) {
+        ios_wanted_display_interval = want;
+        ios_run_on_main_queue_async(ios_apply_display_interval);
+    }
+#endif
+}
+
 static void SDLCALL gfx_sdl_ios_animation_callback(void *param) {
     static bool event_pump_reenabled;
     (void) param;
@@ -468,9 +509,13 @@ static void SDLCALL gfx_sdl_ios_animation_callback(void *param) {
     }
 
     // The game callback owns its independent logic/audio and presentation
-    // deadlines. Invoke it for every display refresh; it submits at most one
-    // drawable and may skip presentation to honor a lower cap.
+    // deadlines. It submits at most one drawable and may skip presentation to
+    // honor a lower cap.
     ios_run_one_game_iter();
+
+    // Re-evaluated after the frame so a cap change made in the options menu
+    // takes effect on the next wakeup rather than the one after it.
+    ios_sync_display_interval();
 }
 #endif
 

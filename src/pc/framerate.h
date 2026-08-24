@@ -75,4 +75,11 @@ void framerate_note_presented_rate(s32 presented_fps, s32 requested_fps);
 // diagnostics rather than for the game to act on
 s32 framerate_adaptive_max(void);
 
+// A ceiling in sub-frames reported by the platform rather than measured from
+// frame timings -- on iOS, thermal pressure and Low Power Mode. Anticipating
+// a throttle avoids the stutter that the measured backoff can only react to.
+// MAX_SUBFRAMES means unconstrained. Unaffected by framerate_reset.
+void framerate_set_platform_ceiling(s32 max_subframes);
+s32 framerate_platform_ceiling(void);
+
 #endif

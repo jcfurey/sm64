@@ -63,6 +63,14 @@ s32 gSubframesLocked = 0;
 #define FORGIVE_INTERVAL 60
 
 static s32 sAdaptiveMax = MAX_SUBFRAMES;
+
+// A ceiling the platform asks for before anything is measured. The backoff
+// above only reacts once frames have already been late, which the player
+// feels as stutter; iOS reports thermal pressure and Low Power Mode ahead of
+// the throttling itself, so honouring that avoids the stutter rather than
+// recovering from it. Deliberately survives framerate_reset: it describes the
+// device, not the frame timings, and is still true after a suspension.
+static s32 sPlatformCeiling = MAX_SUBFRAMES;
 static s32 sPresentationMax = MAX_SUBFRAMES;
 static s32 sLateFrames;
 static s32 sGoodStreak;
@@ -105,6 +113,20 @@ void framerate_note_logic_frame(long long frame_start) {
 // Discards accumulated pacing history. Called when the app returns from the
 // background, where the measurements either side of the gap say nothing
 // about how well the device is keeping up.
+void framerate_set_platform_ceiling(s32 max_subframes) {
+    if (max_subframes < 1) {
+        max_subframes = 1;
+    }
+    if (max_subframes > MAX_SUBFRAMES) {
+        max_subframes = MAX_SUBFRAMES;
+    }
+    sPlatformCeiling = max_subframes;
+}
+
+s32 framerate_platform_ceiling(void) {
+    return sPlatformCeiling;
+}
+
 void framerate_reset(void) {
     sAdaptiveMax = MAX_SUBFRAMES;
     sPresentationMax = MAX_SUBFRAMES;
@@ -184,6 +206,9 @@ s32 framerate_choose_subframes(void) {
     }
     if (want > sAdaptiveMax) {
         want = sAdaptiveMax;
+    }
+    if (want > sPlatformCeiling) {
+        want = sPlatformCeiling;
     }
     if (want > sPresentationMax) {
         want = sPresentationMax;

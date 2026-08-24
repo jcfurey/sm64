@@ -288,6 +288,23 @@ handling. The app pauses and primes its queued audio on background and route
 transitions, and fully reopens the SDL/CoreAudio device after a media-services
 reset because iOS invalidates the old queue.
 
+## Frame pacing and power
+
+The display callback fires once per panel refresh, but the game only draws
+`30 * sub-frames` frames per second. At a 30 fps cap on a 120 Hz display that
+left three of every four wakeups polling input and returning without
+rendering, and each wakeup is a scheduler event and a main-thread resume that
+keeps the SoC out of its deeper idle states. The display link is now asked for
+the cadence actually being drawn, so lowering the frame cap genuinely lowers
+the wakeup rate. The ratio is exact because the cap is already snapped to a
+divisor of the refresh rate.
+
+iOS also reports thermal pressure and Low Power Mode before the device
+throttles. Both now lower the sub-frame ceiling directly: a serious thermal
+state caps at 60 fps, a critical one at 30, and Low Power Mode at 60. The
+measured backoff below still runs, but it no longer has to be the only signal
+-- it can only react once frames are already late, which the player feels.
+
 ## Frame pacing under load
 
 On iOS, SDL's `CADisplayLink` calls the port at the fastest cadence currently

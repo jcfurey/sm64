@@ -18,6 +18,10 @@ surface (`TARGET_N64=0`), especially iOS, `src/pc`, and `tools/porttest`.
 - SDL GameController support with persistent N64 button remapping.
 - Frame interpolation up to 120 rendered fps, adaptive load backoff, optional
   frame caps, and an authentic 30 fps Retro Mode.
+- A display-link cadence matched to the rate actually being drawn, so a lower
+  frame cap reduces wakeups instead of polling and returning at panel rate.
+- Thermal-state and Low Power Mode reporting folded into the frame pacing, so
+  throttling is anticipated rather than measured after frames go late.
 - Ambient CoreAudio session policy, lifecycle queue pausing, and route/media
   reset flushing without competing AVAudioSession ownership.
 - Atomic save/config/layout writes in the file-sharing-visible Documents
@@ -46,7 +50,8 @@ make -C tools/porttest check-shaders
 python3 tools/porttest/check-ios-project.py
 ```
 
-Coverage includes durable writes, iOS storage migration, frame pacing,
+Coverage includes durable writes, iOS storage migration, frame pacing
+including the platform-reported thermal ceiling,
 viewport safe areas, touch layouts and ownership, controller mappings,
 configuration parsing, graphics pools and malformed commands, texture-cache
 recycling, every generated shader configuration, and source-level reachability

@@ -114,6 +114,46 @@ int main(void) {
     CHECK(framerate_choose_subframes() == 2, "a locked backend ignores the backoff");
     gSubframesLocked = 0;
 
+    printf("\nplatform-reported ceiling\n");
+
+    // Thermal pressure and Low Power Mode are reported before the device
+    // actually throttles. The measured backoff can only react after frames
+    // are already late, so the platform ceiling has to bound the choice too.
+    reset();
+    framerate_set_platform_ceiling(MAX_SUBFRAMES);
+    gMaxSubframes = 4;
+    gSubframesLocked = 0;
+    configRetroMode = 0;
+    configFrameCap = 0;
+    CHECK(framerate_choose_subframes() == 4, "unconstrained keeps the full rate");
+
+    framerate_set_platform_ceiling(2);
+    CHECK(framerate_choose_subframes() == 2, "a serious thermal state halves it");
+
+    framerate_set_platform_ceiling(1);
+    CHECK(framerate_choose_subframes() == 1, "a critical thermal state pins 30 fps");
+
+    // A user asking for less than the platform allows still gets less
+    framerate_set_platform_ceiling(4);
+    configFrameCap = 30;
+    CHECK(framerate_choose_subframes() == 1, "the user cap still wins when lower");
+    configFrameCap = 0;
+
+    // Out-of-range values from a future platform mapping must not widen the
+    // ceiling past what the interpolation code supports
+    framerate_set_platform_ceiling(99);
+    CHECK(framerate_platform_ceiling() == MAX_SUBFRAMES, "an absurd ceiling clamps down");
+    framerate_set_platform_ceiling(-5);
+    CHECK(framerate_platform_ceiling() == 1, "a nonsense ceiling clamps up to 1");
+
+    // Resuming from the background discards frame timings, but the device is
+    // just as hot as it was a moment ago
+    framerate_set_platform_ceiling(2);
+    framerate_reset();
+    CHECK(framerate_platform_ceiling() == 2, "resume does not forget thermal pressure");
+    CHECK(framerate_choose_subframes() == 2, "and the ceiling still applies after reset");
+    framerate_set_platform_ceiling(MAX_SUBFRAMES);
+
     printf(failures == 0 ? "\nPASS\n" : "\nFAILED (%d)\n", failures);
     return failures != 0;
 }

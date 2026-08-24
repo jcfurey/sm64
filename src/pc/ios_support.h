@@ -17,6 +17,11 @@ bool ios_platform_is_app_active(void);
 // Keeps AVAudioSession and SDL's queued device in sync with app visibility.
 void ios_audio_session_set_app_active(bool active);
 
+// Runs 'work' on the main queue once the current call stack unwinds.
+// Reconfiguring the display link from inside its own callback would tear down
+// the object that is mid-dispatch, so that change is deferred through here.
+void ios_run_on_main_queue_async(void (*work)(void));
+
 #ifdef __cplusplus
 }
 #endif

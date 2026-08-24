@@ -21,6 +21,8 @@ static id scene_will_deactivate_observer;
 static id scene_did_enter_background_observer;
 static id scene_will_enter_foreground_observer;
 static id scene_did_activate_observer;
+static id thermal_observer;
+static id power_state_observer;
 static UIImpactFeedbackGenerator *touch_feedback;
 
 static void fire_touch_haptic(void) {
@@ -38,6 +40,44 @@ static void fire_touch_haptic(void) {
     } else {
         dispatch_async(dispatch_get_main_queue(), feedback);
     }
+}
+
+void ios_run_on_main_queue_async(void (*work)(void)) {
+    if (work == NULL) {
+        return;
+    }
+    dispatch_async(dispatch_get_main_queue(), ^{
+        work();
+    });
+}
+
+// Translates what iOS reports about the device into a sub-frame ceiling.
+//
+// The measured backoff in framerate.c only steps down after frames have
+// already been late, which the player feels. iOS announces thermal pressure
+// before it throttles and Low Power Mode the moment the user asks for it, so
+// both are better acted on than waited for. Fair state is left alone: it is
+// common under normal play and is not a signal to give up half the frame rate.
+static void update_platform_frame_ceiling(void) {
+#ifdef HIGH_FPS_PC
+    NSProcessInfo *info = [NSProcessInfo processInfo];
+    s32 ceiling = MAX_SUBFRAMES;
+
+    switch (info.thermalState) {
+        case NSProcessInfoThermalStateSerious:
+            ceiling = 2; // 60 fps
+            break;
+        case NSProcessInfoThermalStateCritical:
+            ceiling = 1; // 30 fps, the native logic rate
+            break;
+        default:
+            break;
+    }
+    if (info.lowPowerModeEnabled && ceiling > 2) {
+        ceiling = 2;
+    }
+    framerate_set_platform_ceiling(ceiling);
+#endif
 }
 
 void ios_audio_session_set_app_active(bool active) {
@@ -142,4 +182,25 @@ void ios_platform_init(void) {
                 usingBlock:^(__unused NSNotification *note) {
         scene_did_activate();
     }];
+
+    // Both are delivered on an unspecified queue; the main queue is where the
+    // frame pacing reads the ceiling.
+    thermal_observer = [center
+        addObserverForName:NSProcessInfoThermalStateDidChangeNotification
+                    object:nil
+                     queue:[NSOperationQueue mainQueue]
+                usingBlock:^(__unused NSNotification *note) {
+        update_platform_frame_ceiling();
+    }];
+
+    power_state_observer = [center
+        addObserverForName:NSProcessInfoPowerStateDidChangeNotification
+                    object:nil
+                     queue:[NSOperationQueue mainQueue]
+                usingBlock:^(__unused NSNotification *note) {
+        update_platform_frame_ceiling();
+    }];
+
+    // The device may already be warm or in Low Power Mode at launch
+    update_platform_frame_ceiling();
 }
