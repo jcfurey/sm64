@@ -167,6 +167,7 @@ s32 gMtxTblSize;
 static Gfx *sViewportPos;
 static Vp sSubframeViewport[MAX_INTERP_FRAMES];
 static Vp sPrevViewport;
+static u32 sPrevViewportTimestamp;
 static Vp sCurrViewport;
 
 // Rewrites the recorded display list slots for render variant v; called
@@ -1765,11 +1766,21 @@ void geo_process_root(struct GraphNodeRoot *node, Vp *b, Vp *c, s32 clearColor) 
 #ifdef HIGH_FPS_PC
             if (gRenderSubframes > 1) {
                 Vp *viewportInterp = alloc_display_list(sizeof(*viewportInterp));
+                // Every other interpolated quantity gates on continuity;
+                // without this the first interpolated frame (and the frame
+                // after any viewport jump, e.g. a retro-mode toggle) blends
+                // from a zero-initialized or stale sPrevViewport and flashes
+                // a squashed, mis-scissored picture for its sub-frames.
+                s32 viewportInterpOk = gGlobalTimer == sPrevViewportTimestamp + 1;
                 for (v = 0; v < gRenderSubframes - 1; v++) {
-                    interpolate_vectors_s16(sSubframeViewport[v].vp.vtrans, sPrevViewport.vp.vtrans,
-                                            b->vp.vtrans, INTERP_FACTOR(v));
-                    interpolate_vectors_s16(sSubframeViewport[v].vp.vscale, sPrevViewport.vp.vscale,
-                                            b->vp.vscale, INTERP_FACTOR(v));
+                    if (viewportInterpOk) {
+                        interpolate_vectors_s16(sSubframeViewport[v].vp.vtrans, sPrevViewport.vp.vtrans,
+                                                b->vp.vtrans, INTERP_FACTOR(v));
+                        interpolate_vectors_s16(sSubframeViewport[v].vp.vscale, sPrevViewport.vp.vscale,
+                                                b->vp.vscale, INTERP_FACTOR(v));
+                    } else {
+                        sSubframeViewport[v] = *b;
+                    }
                 }
                 sCurrViewport = *b;
                 *viewportInterp = sSubframeViewport[0];
@@ -1794,6 +1805,7 @@ void geo_process_root(struct GraphNodeRoot *node, Vp *b, Vp *c, s32 clearColor) 
 #ifdef HIGH_FPS_PC
         if (b != NULL) {
             sPrevViewport = *b;
+            sPrevViewportTimestamp = gGlobalTimer;
         }
 #endif
 

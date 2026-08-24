@@ -5,6 +5,9 @@
 #include "math_util.h"
 #include "game/memory.h"
 #include "graph_node.h"
+#ifdef HIGH_FPS_PC
+#include "game/game_init.h" // gGlobalTimer, for the spawn hard-cuts below
+#endif
 #include "game/rendering_graph_node.h"
 #include "game/area.h"
 #include "geo_layout.h"
@@ -708,6 +711,15 @@ void geo_obj_init(struct GraphNodeObject *graphNode, void *sharedChild, Vec3f po
     graphNode->node.flags &= ~GRAPH_RENDER_INVISIBLE;
     graphNode->node.flags |= GRAPH_RENDER_HAS_ANIMATION;
     graphNode->node.flags &= ~GRAPH_RENDER_BILLBOARD;
+
+#ifdef HIGH_FPS_PC
+    // Object nodes are recycled from a free list, so this node may still
+    // carry the previous occupant's interpolation state -- and if that
+    // object was rendered last frame, the timestamps line up and a newly
+    // spawned object would streak in from wherever the dead one stood.
+    // Spawning is a hard cut, exactly what this timestamp exists for.
+    graphNode->skipInterpolationTimestamp = gGlobalTimer;
+#endif
 }
 
 /**
@@ -732,6 +744,15 @@ void geo_obj_init_spawninfo(struct GraphNodeObject *graphNode, struct SpawnInfo 
     graphNode->node.flags &= ~GRAPH_RENDER_INVISIBLE;
     graphNode->node.flags |= GRAPH_RENDER_HAS_ANIMATION;
     graphNode->node.flags &= ~GRAPH_RENDER_BILLBOARD;
+
+#ifdef HIGH_FPS_PC
+    // Object nodes are recycled from a free list, so this node may still
+    // carry the previous occupant's interpolation state -- and if that
+    // object was rendered last frame, the timestamps line up and a newly
+    // spawned object would streak in from wherever the dead one stood.
+    // Spawning is a hard cut, exactly what this timestamp exists for.
+    graphNode->skipInterpolationTimestamp = gGlobalTimer;
+#endif
 }
 
 /**

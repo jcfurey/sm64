@@ -602,6 +602,18 @@ Gfx *envfx_update_bubble_particles(s32 mode, UNUSED Vec3s marioPos, Vec3s camFro
         gSP1Triangle(sGfxCursor++, 9, 10, 11, 0);
         gSP1Triangle(sGfxCursor++, 12, 13, 14, 0);
     }
+
+#ifdef HIGH_FPS_PC
+    // A mode switch can shrink the particle count between two consecutive
+    // frames. The patch pass iterates every group slot, and the timestamp
+    // gate passes because a build did happen this frame -- so slots the
+    // smaller build no longer owns would still point into last frame's
+    // (already recycled) display-list pool. Snow bounds its patch loop with
+    // sPrevSnowParticleCount; bubbles clear the stale slots instead.
+    for (i = (sBubbleParticleMaxCount + 4) / 5; i < 60 / 5; i++) {
+        sBubbleInterpolatedDisplayListPos[i] = NULL;
+    }
+#endif
 #ifdef HIGH_FPS_PC
     for (i = 0; i < sBubbleParticleMaxCount; i++) {
         sPrevBubblePositions[i][0] = gEnvFxBuffer[i].xPos;

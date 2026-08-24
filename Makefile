@@ -598,8 +598,15 @@ ifneq ($(TARGET_WEB),1)
   CXX := g++
 else
   CC := emcc
+  CXX := em++
 endif
-ifeq ($(CXX_FILES),"")
+# The C++ sources under src/pc/gfx exist in the tree on every platform (their
+# bodies are #ifdef'd), so CXX_FILES is never empty for port builds and the
+# link is always driven by CXX. The comparison used to be against the literal
+# two-character string '""', which no make variable ever equals -- combined
+# with CXX never being set for TARGET_WEB, web builds linked with the host
+# g++ against emcc-produced objects.
+ifeq ($(CXX_FILES),)
   LD := $(CC)
 else
   LD := $(CXX)

@@ -449,12 +449,35 @@ void render_hud_camera_status(void) {
  * excluding the cannon reticle which detects a camera preset for it.
  */
 void render_hud(void) {
+    s16 hudDisplayFlags = gHudDisplay.flags;
+
 #ifndef TARGET_N64
     if (!configHUD) {
+        // Hiding the HUD hides the decorations, not the aiming UI: the
+        // cannon reticle is drawn from here too, and without it a cannon
+        // has to be aimed blind. The projection setup mirrors the one in
+        // the main body below (EU orthos differently for PAL widescreen).
+        if (hudDisplayFlags != HUD_DISPLAY_NONE && gCurrentArea != NULL
+            && gCurrentArea->camera->mode == CAMERA_MODE_INSIDE_CANNON) {
+#ifdef VERSION_EU
+            Mtx *mtx = alloc_display_list(sizeof(*mtx));
+
+            if (mtx == NULL) {
+                return;
+            }
+            create_dl_identity_matrix();
+            guOrtho(mtx, -16.0f, SCREEN_WIDTH + 16, 0, SCREEN_HEIGHT, -10.0f, 10.0f, 1.0f);
+            gSPPerspNormalize(gDisplayListHead++, 0xFFFF);
+            gSPMatrix(gDisplayListHead++, VIRTUAL_TO_PHYSICAL(mtx),
+                      G_MTX_PROJECTION | G_MTX_MUL | G_MTX_NOPUSH);
+#else
+            create_dl_ortho_matrix();
+#endif
+            render_hud_cannon_reticle();
+        }
         return;
     }
 #endif
-    s16 hudDisplayFlags = gHudDisplay.flags;
 
     if (hudDisplayFlags == HUD_DISPLAY_NONE) {
         sPowerMeterHUD.animation = POWER_METER_HIDDEN;

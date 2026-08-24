@@ -70,14 +70,20 @@ def check_choice_counts(source: str) -> None:
         checked += 1
 
     # The frame cap row indexes a second array in opt_set, which has to agree
-    frame_caps = re.search(r"frameCaps\[\]\s*=\s*\{(.*?)\}", source, re.DOTALL)
-    if frame_caps is not None:
-        values = [v for v in frame_caps.group(1).split(",") if v.strip()]
-        if "sChoicesFrameCap" in lengths and len(values) != lengths["sChoicesFrameCap"]:
-            fail(
-                f"frameCaps has {len(values)} values but sChoicesFrameCap has "
-                f"{lengths['sChoicesFrameCap']}"
-            )
+    # A missing array is a failure, not a skip: this same check previously
+    # went dead without a sound when the array was renamed, which is exactly
+    # how the out-of-bounds bug it exists to catch got in.
+    frame_caps = re.search(r"sFrameCapValues\[\]\s*=\s*\{(.*?)\}", source, re.DOTALL)
+    if frame_caps is None:
+        fail("could not find sFrameCapValues[]; the frame-cap cross-check is dead")
+    values = [v for v in frame_caps.group(1).split(",") if v.strip()]
+    if "sChoicesFrameCap" not in lengths:
+        fail("could not find sChoicesFrameCap[]; the frame-cap cross-check is dead")
+    if len(values) != lengths["sChoicesFrameCap"]:
+        fail(
+            f"sFrameCapValues has {len(values)} values but sChoicesFrameCap has "
+            f"{lengths['sChoicesFrameCap']}"
+        )
 
     print(f"options menu: {checked} choice counts match their arrays")
 

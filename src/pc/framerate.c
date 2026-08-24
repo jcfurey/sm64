@@ -110,9 +110,6 @@ void framerate_note_logic_frame(long long frame_start) {
     }
 }
 
-// Discards accumulated pacing history. Called when the app returns from the
-// background, where the measurements either side of the gap say nothing
-// about how well the device is keeping up.
 void framerate_set_platform_ceiling(s32 max_subframes) {
     if (max_subframes < 1) {
         max_subframes = 1;
@@ -127,6 +124,10 @@ s32 framerate_platform_ceiling(void) {
     return sPlatformCeiling;
 }
 
+// Discards accumulated pacing history. Called when the app returns from the
+// background, where the measurements either side of the gap say nothing
+// about how well the device is keeping up. The platform ceiling above is
+// deliberately not part of this: it describes the device, not the timings.
 void framerate_reset(void) {
     sAdaptiveMax = MAX_SUBFRAMES;
     sPresentationMax = MAX_SUBFRAMES;

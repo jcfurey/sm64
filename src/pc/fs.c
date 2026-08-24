@@ -197,11 +197,7 @@ bool fs_write_file_atomic(const char *path, const void *data, size_t size) {
         return false;
     }
     if (size != 0 && fwrite(data, 1, size, file) != size) {
-        char tmp_path[1024];
-        fclose(file);
-        if (fs_build_tmp_path(tmp_path, sizeof(tmp_path), path)) {
-            remove(tmp_path);
-        }
+        fs_abort_atomic(file, path);
         return false;
     }
     return fs_close_atomic(file, path);

@@ -90,7 +90,14 @@ static struct {
     // One release flag per reusable frame arena. Presentation and command
     // completion can race on an error, so either callback may safely return
     // the slot exactly once without allocating synchronization state per frame.
+    // The serial identifies WHICH frame's callbacks may do so: on an error the
+    // completed handler releases early, later frames re-acquire the slot, and
+    // the original frame's presented handler can still arrive afterwards -- a
+    // flag alone would let that stale duplicate release a slot it no longer
+    // owns, putting more frames in flight than there are vertex-buffer arenas.
     std::atomic_bool frame_slot_released[MAX_FRAMES_IN_FLIGHT];
+    std::atomic<uint64_t> frame_slot_serial[MAX_FRAMES_IN_FLIGHT];
+    uint64_t frame_serial; // owned by the render thread
 
     // Per-frame vertex buffer arenas
     NSMutableArray<id<MTLBuffer>> *vertex_buffers[MAX_FRAMES_IN_FLIGHT];
@@ -141,8 +148,15 @@ uint64_t gfx_metal_presented_frame_count(void) {
     return sPresentedFrameCount.load(std::memory_order_relaxed);
 }
 
-static void release_frame_slot(int frame_index) {
-    if (!mtl.frame_slot_released[frame_index].exchange(true, std::memory_order_relaxed)) {
+static void release_frame_slot(int frame_index, uint64_t frame_serial) {
+    // Stale duplicate from a frame that no longer owns this slot: ignore.
+    // The serial is stored before the released flag is cleared at acquire,
+    // so a handler either sees its own serial (and the flag dedups) or a
+    // newer one (and returns here).
+    if (mtl.frame_slot_serial[frame_index].load() != frame_serial) {
+        return;
+    }
+    if (!mtl.frame_slot_released[frame_index].exchange(true)) {
         dispatch_semaphore_signal(mtl.frame_semaphore);
     }
 }
@@ -621,7 +635,9 @@ static void gfx_metal_start_frame(void) {
     }
 
     mtl.frame_index = (mtl.frame_index + 1) % MAX_FRAMES_IN_FLIGHT;
-    mtl.frame_slot_released[mtl.frame_index].store(false, std::memory_order_relaxed);
+    mtl.frame_serial++;
+    mtl.frame_slot_serial[mtl.frame_index].store(mtl.frame_serial);
+    mtl.frame_slot_released[mtl.frame_index].store(false);
     mtl.current_vertex_buffer = 0;
     mtl.current_vertex_buffer_offset = 0;
 
@@ -636,7 +652,7 @@ static void gfx_metal_start_frame(void) {
         // No drawable (e.g. app in background): skip rendering this frame
         mtl.encoder = nil;
         mtl.command_buffer = nil;
-        release_frame_slot(mtl.frame_index);
+        release_frame_slot(mtl.frame_index, mtl.frame_serial);
         return;
     }
 
@@ -650,7 +666,7 @@ static void gfx_metal_start_frame(void) {
 
     mtl.command_buffer = [mtl.queue commandBuffer];
     if (mtl.command_buffer == nil) {
-        release_frame_slot(mtl.frame_index);
+        release_frame_slot(mtl.frame_index, mtl.frame_serial);
         metal_fatal("could not create a command buffer");
     }
 
@@ -666,7 +682,7 @@ static void gfx_metal_start_frame(void) {
 
     mtl.encoder = [mtl.command_buffer renderCommandEncoderWithDescriptor:pass];
     if (mtl.encoder == nil) {
-        release_frame_slot(mtl.frame_index);
+        release_frame_slot(mtl.frame_index, mtl.frame_serial);
         metal_fatal("could not create a render command encoder");
     }
     [mtl.encoder setCullMode:MTLCullModeNone];
@@ -766,6 +782,7 @@ void gfx_metal_present(void) {
     // an error) so the next display callback cannot enter nextDrawable while
     // all layer drawables are still owned.
     const int frame_index = mtl.frame_index;
+    const uint64_t frame_serial = mtl.frame_serial;
 
 #if defined(TARGET_IOS) && !TARGET_OS_SIMULATOR
     // Count only frames Core Animation confirms reached the device screen. A
@@ -775,7 +792,7 @@ void gfx_metal_present(void) {
         if (drawable.presentedTime > 0.0) {
             sPresentedFrameCount.fetch_add(1, std::memory_order_relaxed);
         }
-        release_frame_slot(frame_index);
+        release_frame_slot(frame_index, frame_serial);
     }];
 #endif
 
@@ -797,12 +814,12 @@ void gfx_metal_present(void) {
                     ? cb.error.localizedDescription.UTF8String : "(unknown)";
                 fprintf(stderr, "Metal command buffer failed: %s\n", detail);
             }
-            release_frame_slot(frame_index);
+            release_frame_slot(frame_index, frame_serial);
         }
 #if !defined(TARGET_IOS) || TARGET_OS_SIMULATOR
         // The simulator does not expose reliable presentation feedback, and
         // desktop layers are not driven by UIKit's display callback.
-        release_frame_slot(frame_index);
+        release_frame_slot(frame_index, frame_serial);
 #endif
     }];
     [mtl.command_buffer commit];
