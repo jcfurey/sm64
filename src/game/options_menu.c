@@ -86,6 +86,8 @@ struct OptionDef {
 };
 
 static const char *sChoicesFrameCap[] = { "AUTO", "30", "60", "120" };
+// Caps in Hz, index-matched to the labels above; 0 means "follow the display"
+static const unsigned int sFrameCapValues[] = { 0, 30, 60, 120 };
 static const char *sChoicesViewMode[] = { "NORMAL", "WIREFRAME", "COLLISION" };
 static const char *sChoicesOffOn[]    = { "OFF", "ON" };
 static const char *sChoicesOnOff[]    = { "ON", "OFF" };
@@ -120,18 +122,18 @@ static s32 nearest_choice(const f32 *values, s32 count, f32 value) {
 #endif
 
 static const struct OptionDef sOptions[OPT_COUNT] = {
-    [OPT_FRAME_CAP]  = { "FRAME RATE",  sChoicesFrameCap, 5 },
-    [OPT_VIEW_MODE]  = { "VIEW",        sChoicesViewMode, 3 },
-    [OPT_RETRO_MODE] = { "RETRO MODE",  sChoicesOffOn,    2 },
-    [OPT_SHOW_FPS]   = { "SHOW FPS",    sChoicesOffOn,    2 },
-    [OPT_HUD]        = { "HUD",         sChoicesOnOff,    2 },
+    [OPT_FRAME_CAP]  = { "FRAME RATE",  sChoicesFrameCap, ARRAY_COUNT(sChoicesFrameCap) },
+    [OPT_VIEW_MODE]  = { "VIEW",        sChoicesViewMode, ARRAY_COUNT(sChoicesViewMode) },
+    [OPT_RETRO_MODE] = { "RETRO MODE",  sChoicesOffOn,    ARRAY_COUNT(sChoicesOffOn) },
+    [OPT_SHOW_FPS]   = { "SHOW FPS",    sChoicesOffOn,    ARRAY_COUNT(sChoicesOffOn) },
+    [OPT_HUD]        = { "HUD",         sChoicesOnOff,    ARRAY_COUNT(sChoicesOnOff) },
 #ifdef TARGET_IOS
     [OPT_TOUCH_CONTROLS] = { "TOUCH CONTROLS", NULL,              0 },
-    [OPT_TOUCH_SIZE]  = { "TOUCH SIZE",  sChoicesTouchSize,  4 },
-    [OPT_TOUCH_ALPHA] = { "TOUCH ALPHA", sChoicesTouchAlpha, 4 },
-    [OPT_TOUCH_HAPTICS] = { "TOUCH HAPTICS", sChoicesOffOn,      2 },
-    [OPT_TOUCH_AUTOHIDE] = { "HIDE FOR PAD",  sChoicesOffOn,      2 },
-    [OPT_TOUCH_EDIT]  = { "MOVE BUTTONS", sChoicesEdit,      2 },
+    [OPT_TOUCH_SIZE]  = { "TOUCH SIZE",  sChoicesTouchSize,  ARRAY_COUNT(sChoicesTouchSize) },
+    [OPT_TOUCH_ALPHA] = { "TOUCH ALPHA", sChoicesTouchAlpha, ARRAY_COUNT(sChoicesTouchAlpha) },
+    [OPT_TOUCH_HAPTICS] = { "TOUCH HAPTICS", sChoicesOffOn,      ARRAY_COUNT(sChoicesOffOn) },
+    [OPT_TOUCH_AUTOHIDE] = { "HIDE FOR PAD",  sChoicesOffOn,      ARRAY_COUNT(sChoicesOffOn) },
+    [OPT_TOUCH_EDIT]  = { "MOVE BUTTONS", sChoicesEdit,      ARRAY_COUNT(sChoicesEdit) },
     [OPT_CONTROLLER]       = { "CONTROLLER",  NULL,                0 },
     [OPT_GAMEPAD_A]        = { "N64 A",       NULL, GAMEPAD_INPUT_COUNT },
     [OPT_GAMEPAD_B]        = { "N64 B",       NULL, GAMEPAD_INPUT_COUNT },
@@ -145,8 +147,8 @@ static const struct OptionDef sOptions[OPT_COUNT] = {
     [OPT_GAMEPAD_RESET]    = { "RESET MAPPING", NULL,               0 },
 #endif
     [OPT_DEBUG_FEATURES] = { "DEBUG FEATURES", NULL,          0 },
-    [OPT_LEVEL_SELECT]   = { "LEVEL SELECT",   sChoicesOffOn, 2 },
-    [OPT_DEBUG_INFO]     = { "DEBUG INFO",     sChoicesOffOn, 2 },
+    [OPT_LEVEL_SELECT]   = { "LEVEL SELECT",   sChoicesOffOn, ARRAY_COUNT(sChoicesOffOn) },
+    [OPT_DEBUG_INFO]     = { "DEBUG INFO",     sChoicesOffOn, ARRAY_COUNT(sChoicesOffOn) },
 };
 
 static const enum OptionId sMainOptions[] = {
@@ -295,11 +297,9 @@ static s32 opt_get(s32 id) {
 }
 
 static void opt_set(s32 id, s32 value) {
-    static const unsigned int frameCaps[] = { 0, 30, 60, 120 };
-
     switch (id) {
         case OPT_FRAME_CAP:
-            configFrameCap = frameCaps[value];
+            configFrameCap = sFrameCapValues[value];
 #ifdef HIGH_FPS_PC
             framerate_reset();
             fps_counter_reset();
