@@ -44,9 +44,30 @@ jobs:
       - name: Exercise atomic replacement on Windows
         shell: cmd
         run: |
-          call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=x64
-          cl /nologo /std:c11 /W4 /D_CRT_SECURE_NO_WARNINGS /I src\pc tools\porttest\fs_atomic_test.c src\pc\fs.c /Fe:tools\porttest\fs_atomic_test.exe
-          tools\porttest\fs_atomic_test.exe
+          rem Locate the toolchain rather than hardcoding an edition and year.
+          rem The hosted image does not ship Visual Studio at the path this job
+          rem originally assumed, so it failed from the day it was added with
+          rem nothing more informative than "'cl' is not recognized". vswhere is
+          rem Microsoft's supported discovery tool and sits at a fixed path on
+          rem every Windows runner image.
+          rem
+          rem goto is used instead of parenthesised if-blocks on purpose: the
+          rem install path contains "(x86)", and an unquoted expansion inside a
+          rem block would close it early.
+          set "PF86=%ProgramFiles(x86)%"
+          set "VSWHERE=%PF86%\Microsoft Visual Studio\Installer\vswhere.exe"
+          if not exist "%VSWHERE%" goto :notoolchain
+          set "VSPATH="
+          for /f "usebackq tokens=*" %%i in (`"%VSWHERE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSPATH=%%i"
+          if not defined VSPATH goto :notoolchain
+          echo Using Visual Studio at "%VSPATH%"
+          call "%VSPATH%\Common7\Tools\VsDevCmd.bat" -arch=x64 || exit /b 1
+          cl /nologo /std:c11 /W4 /D_CRT_SECURE_NO_WARNINGS /I src\pc tools\porttest\fs_atomic_test.c src\pc\fs.c /Fe:tools\porttest\fs_atomic_test.exe || exit /b 1
+          tools\porttest\fs_atomic_test.exe || exit /b 1
+          exit /b 0
+          :notoolchain
+          echo No Visual Studio C++ toolchain was found on this runner image 1>&2
+          exit /b 1
 
   apple-project-checks:
     runs-on: macos-latest
