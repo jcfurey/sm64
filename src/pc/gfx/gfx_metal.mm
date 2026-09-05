@@ -24,6 +24,7 @@
 #include <string.h>
 #include <math.h>
 #include <atomic>
+#include "gfx_frame_slot.h"
 
 #ifndef _LANGUAGE_C
 #define _LANGUAGE_C
@@ -87,16 +88,9 @@ static struct {
     // depth states indexed [test][write]
     id<MTLDepthStencilState> depth_states[2][2];
 
-    // One release flag per reusable frame arena. Presentation and command
-    // completion can race on an error, so either callback may safely return
-    // the slot exactly once without allocating synchronization state per frame.
-    // The serial identifies WHICH frame's callbacks may do so: on an error the
-    // completed handler releases early, later frames re-acquire the slot, and
-    // the original frame's presented handler can still arrive afterwards -- a
-    // flag alone would let that stale duplicate release a slot it no longer
-    // owns, putting more frames in flight than there are vertex-buffer arenas.
-    std::atomic_bool frame_slot_released[MAX_FRAMES_IN_FLIGHT];
-    std::atomic<uint64_t> frame_slot_serial[MAX_FRAMES_IN_FLIGHT];
+    // Completion and presentation may both release a frame after an error.
+    // Only the callback whose serial still owns an arena can make it free.
+    GfxFrameSlot frame_slots[MAX_FRAMES_IN_FLIGHT];
     uint64_t frame_serial; // owned by the render thread
 
     // Per-frame vertex buffer arenas
@@ -104,7 +98,6 @@ static struct {
     int current_vertex_buffer;
     size_t current_vertex_buffer_offset;
     int frame_index;
-    dispatch_semaphore_t frame_semaphore;
 
     struct ShaderProgramMetal shader_program_pool[64];
     uint8_t shader_program_pool_size;
@@ -149,16 +142,25 @@ uint64_t gfx_metal_presented_frame_count(void) {
 }
 
 static void release_frame_slot(int frame_index, uint64_t frame_serial) {
-    // Stale duplicate from a frame that no longer owns this slot: ignore.
-    // The serial is stored before the released flag is cleared at acquire,
-    // so a handler either sees its own serial (and the flag dedups) or a
-    // newer one (and returns here).
-    if (mtl.frame_slot_serial[frame_index].load() != frame_serial) {
-        return;
+    mtl.frame_slots[frame_index].release(frame_serial);
+}
+
+static bool acquire_frame_slot(void) {
+    uint64_t serial = mtl.frame_serial + 1;
+    if (serial == 0) {
+        serial = 1;
     }
-    if (!mtl.frame_slot_released[frame_index].exchange(true)) {
-        dispatch_semaphore_signal(mtl.frame_semaphore);
+    // Callbacks need not free arenas in acquisition order. A free-count
+    // semaphore alone cannot tell us whether the next arena is still in use.
+    for (int i = 1; i <= MAX_FRAMES_IN_FLIGHT; i++) {
+        int index = (mtl.frame_index + i) % MAX_FRAMES_IN_FLIGHT;
+        if (mtl.frame_slots[index].try_acquire(serial)) {
+            mtl.frame_index = index;
+            mtl.frame_serial = serial;
+            return true;
+        }
     }
+    return false;
 }
 
 static_assert(sizeof(mtl.shader_program_pool) / sizeof(mtl.shader_program_pool[0])
@@ -556,12 +558,7 @@ static void gfx_metal_init(void) {
     if (mtl.queue == nil) {
         metal_fatal("could not create a command queue");
     }
-    mtl.frame_semaphore = dispatch_semaphore_create(MAX_FRAMES_IN_FLIGHT);
-    if (mtl.frame_semaphore == NULL) {
-        metal_fatal("could not create the frame semaphore");
-    }
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        mtl.frame_slot_released[i].store(true, std::memory_order_relaxed);
         mtl.vertex_buffers[i] = [[NSMutableArray alloc] init];
         if (mtl.vertex_buffers[i] == nil) {
             metal_fatal("could not create a vertex-buffer pool");
@@ -627,17 +624,13 @@ static void gfx_metal_start_frame(void) {
 
     // Never stall UIKit's display callback behind old GPU work. Skipping an
     // interpolation frame is preferable to delaying the next 30 Hz logic tick.
-    if (dispatch_semaphore_wait(mtl.frame_semaphore, DISPATCH_TIME_NOW) != 0) {
+    if (!acquire_frame_slot()) {
         mtl.drawable = nil;
         mtl.command_buffer = nil;
         mtl.encoder = nil;
         return;
     }
 
-    mtl.frame_index = (mtl.frame_index + 1) % MAX_FRAMES_IN_FLIGHT;
-    mtl.frame_serial++;
-    mtl.frame_slot_serial[mtl.frame_index].store(mtl.frame_serial);
-    mtl.frame_slot_released[mtl.frame_index].store(false);
     mtl.current_vertex_buffer = 0;
     mtl.current_vertex_buffer_offset = 0;
 

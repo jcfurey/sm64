@@ -10,7 +10,8 @@
 
 ROOT := ../..
 PYTHON ?= python3
-PROGRAMS := fs_atomic_test fs_ios_storage_test framerate_test viewport_layout_test \
+CLOCK_TESTS := framerate_clock_test framerate_eu_clock_test framerate_vanilla_clock_test
+PROGRAMS := fs_atomic_test fs_ios_storage_test framerate_test $(CLOCK_TESTS) gfx_frame_slot_test viewport_layout_test \
             controller_map_test touch_layout_test gfx_pool_test \
             shader_gen_test gfx_bench
 
@@ -44,6 +45,16 @@ fs_ios_storage_test: fs_ios_storage_test.c $(ROOT)/src/pc/fs_ios_storage.c
 
 framerate_test: framerate_test.c $(ROOT)/src/pc/framerate.c $(ROOT)/src/pc/configfile.c $(ROOT)/src/pc/fs.c
 	$(CC) $(CFLAGS) -o $@ $^
+
+$(CLOCK_TESTS): framerate_clock_test.c $(ROOT)/src/pc/framerate.c $(ROOT)/src/pc/framerate.h \
+                $(ROOT)/src/pc/configfile.c $(ROOT)/src/pc/fs.c
+	$(CC) $(CFLAGS) -o $@ $(filter %.c,$^)
+
+framerate_eu_clock_test: override CFLAGS := $(filter-out -DVERSION_US=1,$(CFLAGS)) -DVERSION_EU=1
+framerate_vanilla_clock_test: override CFLAGS := $(filter-out -DHIGH_FPS_PC=1,$(CFLAGS))
+
+gfx_frame_slot_test: gfx_frame_slot_test.cpp $(ROOT)/src/pc/gfx/gfx_frame_slot.h
+	$(CXX) $(CXXFLAGS) -pthread -o $@ $<
 
 viewport_layout_test: viewport_layout_test.c $(ROOT)/src/pc/gfx/gfx_viewport.c
 	$(CC) $(CFLAGS) -o $@ $^
@@ -112,12 +123,16 @@ gfx_bench: gfx_bench.c $(ROOT)/src/pc/gfx/gfx_pc.c $(ROOT)/src/pc/gfx/gfx_viewpo
            $(ROOT)/src/pc/gfx/gfx_cc.c $(ROOT)/src/pc/configfile.c $(ROOT)/src/pc/fs.c
 	$(CC) $(CFLAGS) -o $@ $^ -lm
 
-check: fs_atomic_test fs_ios_storage_test framerate_test viewport_layout_test controller_map_test touch_layout_test gfx_pool_test shader_gen_test
+check: fs_atomic_test fs_ios_storage_test framerate_test $(CLOCK_TESTS) gfx_frame_slot_test viewport_layout_test controller_map_test touch_layout_test gfx_pool_test shader_gen_test
 	./fs_atomic_test
 	@echo
 	./fs_ios_storage_test
 	@echo
 	./framerate_test
+	./framerate_clock_test
+	./framerate_eu_clock_test
+	./framerate_vanilla_clock_test
+	./gfx_frame_slot_test
 	@echo
 	./viewport_layout_test
 	@echo

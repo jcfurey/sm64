@@ -1,6 +1,7 @@
 // Structured libFuzzer harness for bounds-sensitive display-list commands.
 // Pointers always refer to local valid storage; the fuzzer controls command
-// counts, indices, viewport values, light counts, and matrix parameters.
+// counts, indices, viewport values, light counts, matrix parameters, and
+// other-mode bit fields.
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -34,7 +35,8 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     Vtx vertices[64];
     Mtx matrix;
     Vp viewport;
-    Gfx commands[8];
+    Ambient ambient = {0};
+    Gfx commands[12];
     Gfx *g = commands;
     size_t position = 0;
     uint8_t vertex_count;
@@ -62,6 +64,10 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     g->words.w1 = (uintptr_t) next_byte(data, size, &position) * 64;
     g++;
 
+    // gfx_run starts with one directional light and one ambient light.
+    // Keeping ambient in its own allocation lets ASan detect an oversized read.
+    gSPLight(g++, &ambient, 2);
+
     g->words.w0 = ((uintptr_t) G_MOVEWORD << 24)
                 | ((uintptr_t) G_MW_NUMLIGHT << 16);
     g->words.w1 = next_u16(data, size, &position) * 24U;
@@ -82,6 +88,15 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     g->words.w1 = 0;
     g++;
 
+    for (int high = 0; high < 2; high++) {
+        g->words.w0 = ((uintptr_t) (high ? G_SETOTHERMODE_H : G_SETOTHERMODE_L) << 24)
+                    | ((uintptr_t) next_byte(data, size, &position) << 8)
+                    | next_byte(data, size, &position);
+        g->words.w1 = (uintptr_t) next_u16(data, size, &position) << 16;
+        g->words.w1 |= next_u16(data, size, &position);
+        g++;
+    }
+
     gSPEndDisplayList(g++);
 
     gfx_start_frame();
@@ -94,7 +109,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
 int main(int argc, char **argv) {
     unsigned int iterations = argc > 1 ? (unsigned int) strtoul(argv[1], NULL, 10) : 10000;
     uint32_t state = 0x534d3634U;
-    uint8_t input[32];
+    uint8_t input[48];
 
     for (unsigned int run = 0; run < iterations; run++) {
         for (size_t i = 0; i < sizeof(input); i++) {

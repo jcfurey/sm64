@@ -19,33 +19,14 @@
 
 #define GFX_API_NAME "GLX - OpenGL"
 
-// With frame interpolation two sub-frames are presented per game logic
-// frame, so presentation runs at twice the logic rate
-#ifdef HIGH_FPS_PC
-#ifdef VERSION_EU
-#define FRAME_INTERVAL_US_NUMERATOR 40000
-#define FRAME_INTERVAL_US_DENOMINATOR 2
-#else
-#define FRAME_INTERVAL_US_NUMERATOR 100000
-#define FRAME_INTERVAL_US_DENOMINATOR 6
-#endif
-#else
-#ifdef VERSION_EU
-#define FRAME_INTERVAL_US_NUMERATOR 40000
-#define FRAME_INTERVAL_US_DENOMINATOR 1
-#else
-#define FRAME_INTERVAL_US_NUMERATOR 100000
-#define FRAME_INTERVAL_US_DENOMINATOR 3
-#endif
-#endif
+#include "../framerate.h"
 
 #ifdef HIGH_FPS_PC
-#include "../framerate.h"
-// This backend presents at a fixed 60 fps (the intervals above), so it
-// always renders two sub-frames per game logic frame
+// Auto renders twice per logic tick; the shared policy can lower that count.
+// Presentation deadlines below follow the selected count without changing
+// the duration of a complete game tick.
 static void glx_set_subframes(void) {
     gMaxSubframes = 2;
-    gSubframesLocked = 1;
 }
 #endif
 
@@ -199,7 +180,7 @@ static struct {
     bool has_oml_sync_control;
     uint64_t ust0;
     int64_t last_msc;
-    uint64_t wanted_ust; // multiplied by FRAME_INTERVAL_US_DENOMINATOR
+    uint64_t wanted_ust; // multiplied by FRAMERATE_CLOCK_DENOMINATOR
     uint64_t vsync_interval;
     uint64_t last_ust;
     int64_t target_msc;
@@ -478,12 +459,13 @@ static bool gfx_glx_start_frame(void) {
 }
 
 static void gfx_glx_swap_buffers_begin(void) {
-    glx.wanted_ust += FRAME_INTERVAL_US_NUMERATOR; // advance 1/30 seconds on JP/US or 1/25 seconds on EU
+    const uint32_t frame_interval = framerate_frame_interval_units();
+    glx.wanted_ust += frame_interval;
     
     if (!glx.has_oml_sync_control && !glx.has_sgi_video_sync) {
         glFlush();
         
-        uint64_t target = glx.wanted_ust / FRAME_INTERVAL_US_DENOMINATOR;
+        uint64_t target = glx.wanted_ust / FRAMERATE_CLOCK_DENOMINATOR;
         uint64_t now;
         while (target > (now = (uint64_t)get_time() - glx.ust0)) {
             struct timespec ts = {(target - now) / 1000000, ((target - now) % 1000000) * 1000};
@@ -492,14 +474,14 @@ static void gfx_glx_swap_buffers_begin(void) {
             }
         }
         
-        if (target + 2 * FRAME_INTERVAL_US_NUMERATOR / FRAME_INTERVAL_US_DENOMINATOR < now) {
-            if (target + 32 * FRAME_INTERVAL_US_NUMERATOR / FRAME_INTERVAL_US_DENOMINATOR >= now) {
+        if (target + 2 * frame_interval / FRAMERATE_CLOCK_DENOMINATOR < now) {
+            if (target + 32 * frame_interval / FRAMERATE_CLOCK_DENOMINATOR >= now) {
                 printf("Dropping frame\n");
                 glx.dropped_frame = true;
                 return;
             } else {
                 // Reset timer since we are way out of sync
-                glx.wanted_ust = now * FRAME_INTERVAL_US_DENOMINATOR;
+                glx.wanted_ust = now * FRAMERATE_CLOCK_DENOMINATOR;
             }
         }
         glXSwapBuffers(glx.dpy, glx.win);
@@ -508,7 +490,7 @@ static void gfx_glx_swap_buffers_begin(void) {
         return;
     }
     
-    double vsyncs_to_wait = (int64_t)(glx.wanted_ust / FRAME_INTERVAL_US_DENOMINATOR - glx.last_ust) / (double)glx.vsync_interval;
+    double vsyncs_to_wait = (int64_t)(glx.wanted_ust / FRAMERATE_CLOCK_DENOMINATOR - glx.last_ust) / (double)glx.vsync_interval;
     if (vsyncs_to_wait <= 0) {
         printf("Dropping frame\n");
         // Drop frame
@@ -518,7 +500,7 @@ static void gfx_glx_swap_buffers_begin(void) {
     if (floor(vsyncs_to_wait) != vsyncs_to_wait) {
         uint64_t left_ust = glx.last_ust + floor(vsyncs_to_wait) * glx.vsync_interval;
         uint64_t right_ust = glx.last_ust + ceil(vsyncs_to_wait) * glx.vsync_interval;
-        uint64_t adjusted_wanted_ust = glx.wanted_ust / FRAME_INTERVAL_US_DENOMINATOR + (glx.last_ust + FRAME_INTERVAL_US_NUMERATOR / FRAME_INTERVAL_US_DENOMINATOR > glx.wanted_ust / FRAME_INTERVAL_US_DENOMINATOR ? 2000 : -2000);
+        uint64_t adjusted_wanted_ust = glx.wanted_ust / FRAMERATE_CLOCK_DENOMINATOR + (glx.last_ust + frame_interval / FRAMERATE_CLOCK_DENOMINATOR > glx.wanted_ust / FRAMERATE_CLOCK_DENOMINATOR ? 2000 : -2000);
         int64_t diff_left = adjusted_wanted_ust - left_ust;
         int64_t diff_right = right_ust - adjusted_wanted_ust;
         if (diff_left < 0) {
@@ -620,7 +602,7 @@ static void gfx_glx_swap_buffers_end(void) {
     if (msc - glx.target_msc >= 8 || bad_vsync_interval) {
         // Frame arrived way too late, so reset timer from here
         printf("Reseting timer\n");
-        glx.wanted_ust = this_ust * FRAME_INTERVAL_US_DENOMINATOR;
+        glx.wanted_ust = this_ust * FRAMERATE_CLOCK_DENOMINATOR;
     }
 }
 

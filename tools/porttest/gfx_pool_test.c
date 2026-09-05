@@ -24,6 +24,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <math.h>
 
 #ifndef _LANGUAGE_C
 #define _LANGUAGE_C
@@ -72,6 +73,19 @@ static struct FakeShader fake_shaders[FAKE_SHADER_POOL];
 static int fake_shader_count;
 static int fake_textures_uploaded;
 static int fake_texture_count;
+static bool capture_draws;
+static int captured_triangles;
+static float captured_colors[8][3];
+static bool captured_depth_masks[8];
+static bool fake_depth_mask;
+
+static void check(bool condition, const char *message) {
+    if (!condition) {
+        fprintf(stderr, "  FAIL: %s\n", message);
+        exit(1);
+    }
+    printf("  ok:   %s\n", message);
+}
 
 static bool fake_z_is_from_0_to_1(void) { return false; }
 static void fake_unload_shader(struct ShaderProgram *p) {}
@@ -116,12 +130,22 @@ static void fake_select_texture(int tile, uint32_t id) {}
 static void fake_upload_texture(const uint8_t *buf, int w, int h) { fake_textures_uploaded++; }
 static void fake_set_sampler(int tile, bool lin, uint32_t cms, uint32_t cmt) {}
 static void fake_set_depth_test(bool b) {}
-static void fake_set_depth_mask(bool b) {}
+static void fake_set_depth_mask(bool b) { fake_depth_mask = b; }
 static void fake_set_zmode_decal(bool b) {}
 static void fake_set_viewport(int x, int y, int w, int h) {}
 static void fake_set_scissor(int x, int y, int w, int h) {}
 static void fake_set_use_alpha(bool b) {}
-static void fake_draw_triangles(float *buf, size_t len, size_t tris) {}
+static void fake_draw_triangles(float *buf, size_t len, size_t tris) {
+    if (!capture_draws) return;
+    if (tris == 0 || len / tris != 24 || captured_triangles + tris > 8) {
+        fprintf(stderr, "unexpected captured triangle layout\n");
+        exit(1);
+    }
+    for (size_t i = 0; i < tris; i++) {
+        memcpy(captured_colors[captured_triangles], buf + i * 24 + 4, 3 * sizeof(float));
+        captured_depth_masks[captured_triangles++] = fake_depth_mask;
+    }
+}
 static void fake_void(void) {}
 
 static struct GfxRenderingAPI fake_rapi = {
@@ -276,6 +300,104 @@ static void run_malformed_commands(void) {
     run_dl(malformed);
 }
 
+static Mtx identity = { .m = {{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1}} };
+static Mtx modelview = { .m = {{0.001f, 0, 0, 0}, {0, 0.001f, 0, 0}, {0, 0, 0.001f, 0}, {0, 0, 0, 1}} };
+static Vtx lit_vertices[3];
+
+// Keep the test draw simple enough to inspect its shaded colors and depth
+// writes at the rendering API boundary, after command interpretation.
+static Gfx *begin_capture(Gfx *g) {
+    captured_triangles = 0;
+    capture_draws = true;
+    memset(lit_vertices, 0, sizeof(lit_vertices));
+    for (int i = 0; i < 3; i++) {
+        lit_vertices[i].n.ob[0] = i - 1;
+        lit_vertices[i].n.ob[1] = i == 1;
+        lit_vertices[i].n.n[2] = 127;
+        lit_vertices[i].n.a = 255;
+    }
+    gSPMatrix(g++, &identity, G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH);
+    // Keep the larger triangles in the texture/pool tests inside the frustum
+    // too: RSP matrix contents persist between display lists.
+    gSPMatrix(g++, &modelview, G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_NOPUSH);
+    gSPClearGeometryMode(g++, 0xffffffff);
+    gSPSetGeometryMode(g++, G_SHADE | G_SHADING_SMOOTH);
+    gSPSetOtherMode(g++, G_SETOTHERMODE_L, 0, 32, 0);
+    gSPSetOtherMode(g++, G_SETOTHERMODE_H, 0, 32, 0);
+    emit_combine(g++, G_CCMUX_0, G_CCMUX_0, G_CCMUX_0, G_CCMUX_SHADE);
+    return g;
+}
+
+static void run_light_commands(void) {
+    // A standalone ambient allocation exposes the overread hidden when it
+    // happens to be followed by a directional light inside a Lights struct.
+    static Ambient ambient = { .l = {{10, 20, 30}, 0, {10, 20, 30}, 0} };
+    static Light front = { .l = {{50, 60, 70}, 0, {50, 60, 70}, 0, {0, 0, 127}, 0} };
+    static Light back = { .l = {{50, 60, 70}, 0, {50, 60, 70}, 0, {0, 0, -127}, 0} };
+    const int expected[3][3] = {{60, 80, 100}, {10, 20, 30}, {110, 140, 170}};
+    Gfx commands[40];
+    Gfx *g = begin_capture(commands);
+    gSPSetGeometryMode(g++, G_LIGHTING);
+    gSPNumLights(g++, NUMLIGHTS_1);
+    gSPLight(g++, &front, 1);
+    gSPLight(g++, &ambient, 2);
+    gSPVertex(g++, lit_vertices, 3, 0);
+    gSP1Triangle(g++, 0, 1, 2, 0);
+    gSPLight(g++, &back, 1);
+    gSPVertex(g++, lit_vertices, 3, 0);
+    gSP1Triangle(g++, 0, 1, 2, 0);
+    gSPNumLights(g++, NUMLIGHTS_2);
+    gSPLight(g++, &front, 1);
+    gSPLight(g++, &front, 2);
+    gSPLight(g++, &ambient, 3);
+    gSPVertex(g++, lit_vertices, 3, 0);
+    gSP1Triangle(g++, 0, 1, 2, 0);
+    gSPEndDisplayList(g++);
+    run_dl(commands);
+    capture_draws = false;
+    check(captured_triangles == 3, "ambient and directional lighting still draw");
+    bool colors_match = true;
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            colors_match &= fabsf(captured_colors[i][j] * 255.0f - expected[i][j]) < 0.01f;
+        }
+    }
+    check(colors_match, "ambient colors and updated directional lights are preserved");
+}
+
+static void run_other_mode_commands(void) {
+    Gfx commands[40];
+    Gfx *g = begin_capture(commands);
+    gSPVertex(g++, lit_vertices, 3, 0);
+    // Exercise a valid full-word write, then malformed fields in both words.
+    gSPSetOtherMode(g++, G_SETOTHERMODE_L, 0, 32, Z_UPD);
+    gSP1Triangle(g++, 0, 1, 2, 0);
+    const unsigned fields[][2] = {{0, 63}, {0, 255}, {255, 0}, {32, 0}, {31, 1}};
+    for (int high = 0; high < 2; high++) {
+        for (size_t i = 0; i < sizeof(fields) / sizeof(fields[0]); i++) {
+            g->words.w0 = ((uintptr_t) (high ? G_SETOTHERMODE_H : G_SETOTHERMODE_L) << 24)
+                        | (fields[i][0] << 8) | fields[i][1];
+            g->words.w1 = 0;
+            g++;
+        }
+    }
+    gSP1Triangle(g++, 0, 1, 2, 0);
+    // A valid one-bit high-word field cannot clear the low-word depth flag.
+    gSPSetOtherMode(g++, G_SETOTHERMODE_H, 31, 1, 0);
+    gSP1Triangle(g++, 0, 1, 2, 0);
+    // Data outside the field's mask must not enable depth writes.
+    gSPSetOtherMode(g++, G_SETOTHERMODE_L, 0, 32, 0);
+    gSPSetOtherMode(g++, G_SETOTHERMODE_L, 0, 1, Z_UPD);
+    gSP1Triangle(g++, 0, 1, 2, 0);
+    gSPEndDisplayList(g++);
+    run_dl(commands);
+    capture_draws = false;
+    check(captured_triangles == 4, "invalid other-mode fields do not prevent later draws");
+    check(captured_depth_masks[0] && captured_depth_masks[1] && captured_depth_masks[2]
+              && !captured_depth_masks[3],
+          "other-mode fields preserve unrelated state and accept valid 32-bit writes");
+}
+
 int main(void) {
     build_dl();
     gfx_init(&wm, &fake_rapi, "pooltest", false);
@@ -283,6 +405,8 @@ int main(void) {
     run_malformed_commands();
     printf("display list command bounds\n");
     printf("  ok:   malformed matrix, light, vertex, and triangle commands are rejected\n");
+    run_other_mode_commands();
+    run_light_commands();
 
     printf("\ndegenerate tiles\n");
     for (int i = 0; i < (int) sizeof(texture); i++) {

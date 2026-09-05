@@ -32,35 +32,16 @@
 #define WINCLASS_NAME L"N64GAME"
 #define GFX_API_NAME "DirectX"
 
-// With frame interpolation two sub-frames are presented per game logic
-// frame, so presentation runs at twice the logic rate
-#ifdef HIGH_FPS_PC
-#ifdef VERSION_EU
-#define FRAME_INTERVAL_US_NUMERATOR 40000
-#define FRAME_INTERVAL_US_DENOMINATOR 2
-#else
-#define FRAME_INTERVAL_US_NUMERATOR 100000
-#define FRAME_INTERVAL_US_DENOMINATOR 6
-#endif
-#else
-#ifdef VERSION_EU
-#define FRAME_INTERVAL_US_NUMERATOR 40000
-#define FRAME_INTERVAL_US_DENOMINATOR 1
-#else
-#define FRAME_INTERVAL_US_NUMERATOR 100000
-#define FRAME_INTERVAL_US_DENOMINATOR 3
-#endif
-#endif
-
-#ifdef HIGH_FPS_PC
-// This backend presents at a fixed 60 fps, so it always renders two
-// sub-frames per game logic frame
 extern "C" {
 #include "../framerate.h"
 }
+
+#ifdef HIGH_FPS_PC
+// Auto renders twice per logic tick; the shared policy can lower that count.
+// Presentation deadlines below follow the selected count without changing
+// the duration of a complete game tick.
 static void dxgi_set_subframes(void) {
     gMaxSubframes = 2;
-    gSubframesLocked = 1;
 }
 #endif
 
@@ -85,7 +66,7 @@ static struct {
     ComPtr<IDXGISwapChain1> swap_chain;
     HANDLE waitable_object;
     uint64_t qpc_init, qpc_freq;
-    uint64_t frame_timestamp; // in units of 1/FRAME_INTERVAL_US_DENOMINATOR microseconds
+    uint64_t frame_timestamp; // in units of 1/FRAMERATE_CLOCK_DENOMINATOR microseconds
     std::map<UINT, DXGI_FRAME_STATISTICS> frame_stats;
     std::set<std::pair<UINT, UINT>> pending_frame_stats;
     bool dropped_frame;
@@ -380,6 +361,7 @@ static uint64_t qpc_to_us(uint64_t qpc) {
 }
 
 static bool gfx_dxgi_start_frame(void) {
+    const uint32_t frame_interval = framerate_frame_interval_units();
     DXGI_FRAME_STATISTICS stats;
     if (dxgi.swap_chain->GetFrameStatistics(&stats) == S_OK && (stats.SyncRefreshCount != 0 || stats.SyncQPCTime.QuadPart != 0ULL)) {
         {
@@ -405,7 +387,7 @@ static bool gfx_dxgi_start_frame(void) {
         dxgi.pending_frame_stats.erase(dxgi.pending_frame_stats.begin());
     }
 
-    dxgi.frame_timestamp += FRAME_INTERVAL_US_NUMERATOR;
+    dxgi.frame_timestamp += frame_interval;
 
     if (dxgi.frame_stats.size() >= 2) {
         DXGI_FRAME_STATISTICS *first = &dxgi.frame_stats.begin()->second;
@@ -441,19 +423,19 @@ static bool gfx_dxgi_start_frame(void) {
         uint64_t last_frame_present_end_qpc = (last->SyncQPCTime.QuadPart - dxgi.qpc_init) + estimated_vsync_interval * queued_vsyncs;
         uint64_t last_end_us = qpc_to_us(last_frame_present_end_qpc);
 
-        double vsyncs_to_wait = (double)(int64_t)(dxgi.frame_timestamp / FRAME_INTERVAL_US_DENOMINATOR - last_end_us) / estimated_vsync_interval_us;
+        double vsyncs_to_wait = (double)(int64_t)(dxgi.frame_timestamp / FRAMERATE_CLOCK_DENOMINATOR - last_end_us) / estimated_vsync_interval_us;
         //printf("ts: %llu, last_end_us: %llu, Init v: %f\n", dxgi.frame_timestamp / 3, last_end_us, vsyncs_to_wait);
 
         if (vsyncs_to_wait <= 0) {
             // Too late
 
-            if ((int64_t)(dxgi.frame_timestamp / FRAME_INTERVAL_US_DENOMINATOR - last_end_us) < -66666) {
+            if ((int64_t)(dxgi.frame_timestamp / FRAMERATE_CLOCK_DENOMINATOR - last_end_us) < -66666) {
                 // The application must have been paused or similar
-                vsyncs_to_wait = round(((double)FRAME_INTERVAL_US_NUMERATOR / FRAME_INTERVAL_US_DENOMINATOR) / estimated_vsync_interval_us);
+                vsyncs_to_wait = round(((double)frame_interval / FRAMERATE_CLOCK_DENOMINATOR) / estimated_vsync_interval_us);
                 if (vsyncs_to_wait < 1) {
                     vsyncs_to_wait = 1;
                 }
-                dxgi.frame_timestamp = FRAME_INTERVAL_US_DENOMINATOR * (last_end_us + vsyncs_to_wait * estimated_vsync_interval_us);
+                dxgi.frame_timestamp = FRAMERATE_CLOCK_DENOMINATOR * (last_end_us + vsyncs_to_wait * estimated_vsync_interval_us);
             } else {
                 // Drop frame
                 //printf("Dropping frame\n");
@@ -464,7 +446,7 @@ static bool gfx_dxgi_start_frame(void) {
         if (floor(vsyncs_to_wait) != vsyncs_to_wait) {
             uint64_t left = last_end_us + floor(vsyncs_to_wait) * estimated_vsync_interval_us;
             uint64_t right = last_end_us + ceil(vsyncs_to_wait) * estimated_vsync_interval_us;
-            uint64_t adjusted_desired_time = dxgi.frame_timestamp / FRAME_INTERVAL_US_DENOMINATOR + (last_end_us + (FRAME_INTERVAL_US_NUMERATOR / FRAME_INTERVAL_US_DENOMINATOR) > dxgi.frame_timestamp / FRAME_INTERVAL_US_DENOMINATOR ? 2000 : -2000);
+            uint64_t adjusted_desired_time = dxgi.frame_timestamp / FRAMERATE_CLOCK_DENOMINATOR + (last_end_us + (frame_interval / FRAMERATE_CLOCK_DENOMINATOR) > dxgi.frame_timestamp / FRAMERATE_CLOCK_DENOMINATOR ? 2000 : -2000);
             int64_t diff_left = adjusted_desired_time - left;
             int64_t diff_right = right - adjusted_desired_time;
             if (diff_left < 0) {
@@ -491,7 +473,12 @@ static bool gfx_dxgi_start_frame(void) {
         }
         dxgi.length_in_vsync_frames = vsyncs_to_wait;
     } else {
-        dxgi.length_in_vsync_frames = 2;
+        // Until presentation statistics arrive, estimate a 60 Hz display.
+        // Still honor the chosen render interval (one refresh at 60 fps,
+        // two at 30 fps) instead of always imposing a 30 fps swap interval.
+        UINT interval = (UINT) round((double) frame_interval * 60.0
+                                     / (FRAMERATE_CLOCK_DENOMINATOR * 1000000.0));
+        dxgi.length_in_vsync_frames = interval < 1 ? 1 : (interval > 4 ? 4 : interval);
     }
 
     return true;

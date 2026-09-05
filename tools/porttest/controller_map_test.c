@@ -93,6 +93,51 @@ int main(void) {
     CHECK(configTouchScale == 1.25f, "a floating option rejects non-finite values");
     CHECK(configHUD, "a boolean option rejects unknown spellings");
 
+    // EOF is detected by a second read when a line fills a buffer exactly.
+    // Cover the initial allocation and successive growth boundaries, with
+    // and without a newline, and an unrelated setting on the preceding line.
+    for (size_t length = 7; length <= 65535; length = length * 2 + 1) {
+        for (int newline = 0; newline <= 1; newline++) {
+            FILE *file = fopen(config_path, "wb");
+            fprintf(file, "frame_cap 60\n");
+            for (size_t i = 8; i < length; i++) fputc(' ', file);
+            fputs("hud true", file);
+            if (newline) fputc('\n', file);
+            fclose(file);
+            configHUD = false;
+            configfile_load(config_path);
+            CHECK(configHUD, "a final line after another setting is retained");
+
+            file = fopen(config_path, "wb");
+            for (size_t i = 7; i < length; i++) fputc(' ', file);
+            fputs("key_a 1", file); // exactly 7, 15, 31, ... bytes
+            if (newline) fputc('\n', file);
+            fclose(file);
+            configKeyA = 0;
+            configfile_load(config_path);
+            CHECK(configKeyA == 1, "a final line filling the buffer is retained");
+        }
+    }
+    {
+        FILE *file = fopen(config_path, "wb");
+        fputs("fullscreen true", file);
+        fclose(file);
+        configFullscreen = false;
+        configfile_load(config_path);
+        CHECK(configFullscreen, "fullscreen true is accepted without a trailing newline");
+    }
+    {
+        FILE *file = fopen(config_path, "wb");
+        fputs("hud false", file);
+        for (size_t i = 0; i < 65536; i++) fputc(' ', file);
+        fputs("\nfullscreen true", file);
+        fclose(file);
+        configHUD = true;
+        configFullscreen = false;
+        configfile_load(config_path);
+        CHECK(configHUD && configFullscreen, "an oversized line is skipped without losing the next setting");
+    }
+
     controller_gamepad_set_connected(true);
     CHECK(controller_gamepad_is_connected(), "controller presence is shared with the touch overlay");
     controller_gamepad_set_connected(false);

@@ -28,13 +28,25 @@ long long framerate_monotonic_ms(void) {
     return (long long) time(NULL) * 1000;
 }
 
+u32 framerate_frame_interval_units(void) {
+    s32 subframes = 1;
+#ifdef HIGH_FPS_PC
+    subframes = gRenderSubframes;
+    if (subframes < 1) {
+        subframes = 1;
+    } else if (subframes > MAX_SUBFRAMES) {
+        subframes = MAX_SUBFRAMES;
+    }
+#endif
+    return 12000000U / subframes;
+}
+
 #ifdef HIGH_FPS_PC
 
 // Frames rendered per logic frame; latched at the start of each logic frame
 // so it never changes partway through one
 s32 gRenderSubframes = 1;
 s32 gMaxSubframes = 1;
-s32 gSubframesLocked = 0;
 
 //------------------------------------------------------------------------------
 // Adaptive sub-frame backoff
@@ -187,12 +199,6 @@ s32 framerate_choose_subframes(void) {
     s32 max = gMaxSubframes < 1 ? 1 : (gMaxSubframes > MAX_SUBFRAMES ? MAX_SUBFRAMES : gMaxSubframes);
     s32 want = max;
 
-    if (gSubframesLocked) {
-        // The window backend swaps at a fixed interval, so the sub-frame
-        // count is what keeps the game running at the right speed and must
-        // not be second-guessed here
-        return max;
-    }
     if (configFrameCap != 0) {
         want = configFrameCap / GAME_FRAMERATE;
     }

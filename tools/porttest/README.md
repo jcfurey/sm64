@@ -38,6 +38,17 @@ a legacy 90 fps cap has to divide the display's refresh multiple, so on a
 120 Hz display it deliberately rounds down to 60. The user-facing menu no
 longer offers that misleading choice.
 
+The `framerate_clock_test`, `framerate_eu_clock_test`, and
+`framerate_vanilla_clock_test` variants check that desktop presentation timing
+preserves the native 30 or 25 Hz logic rate when the sub-frame count changes.
+The policy tests cover desktop frame caps, Retro Mode, and backoff under load.
+
+## `gfx_frame_slot_test`
+
+Exercises the arena ownership primitive used by Metal. Concurrent completion
+and presentation callbacks must release an arena only once, and delayed
+callbacks must not release an arena after a newer frame has acquired it.
+
 ## `touch_layout_test`
 
 Covers the on-screen control layout in
@@ -66,6 +77,10 @@ Covers default SDL-style gamepad mappings, triggers and right-stick virtual
 buttons, remapping, config round-trips, invalid saved values, D-pad menu access,
 and the controller-presence state used by the touch overlay.
 
+Config parsing checks also cover final lines without a newline at every buffer
+growth boundary, the maximum accepted line length, and recovery after an
+oversized line.
+
 ## `gfx_pool_test`
 
 Feeds the interpreter more distinct colour combiner configurations than its
@@ -89,7 +104,9 @@ over-complex display list renders with the wrong combiner instead of
 corrupting memory.
 
 The same suite rejects malformed matrix-stack pops, light counts, vertex loads,
-and triangle indices, and forces the texture cache through a complete recycle.
+triangle indices, and other-mode bit fields, and forces the texture cache
+through a complete recycle. It verifies ambient and directional light colors
+using a standalone ambient allocation so ASan can detect an oversized read.
 `gfx_command_fuzz.c` feeds those fields from arbitrary bytes while keeping all
 command pointers in valid local storage.
 

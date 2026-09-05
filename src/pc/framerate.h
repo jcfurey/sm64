@@ -28,10 +28,6 @@ extern s32 gRenderSubframes;
 // refresh rate supports (set once by the window backend at init)
 extern s32 gMaxSubframes;
 
-// Set by window backends that present at a fixed rate and cannot honor a
-// lower sub-frame count (glx, dxgi)
-extern s32 gSubframesLocked;
-
 // The rate the game's logic runs at, which the EU release halves from the
 // 50 Hz PAL field rate rather than the 60 Hz NTSC one. Everything that
 // converts between frame caps, sub-frame counts and real time has to go
@@ -49,6 +45,12 @@ extern s32 gSubframesLocked;
 
 // Interpolation fraction of variant v for the current sub-frame count
 #define INTERP_FACTOR(v) (((f32)(v) + 1.0f) / (f32) gRenderSubframes)
+
+// Desktop presentation timestamps use a fixed fractional-microsecond unit.
+// Twelve divides evenly by every supported sub-frame count (1..4), so a
+// complete logic tick always advances the same time even when the cap changes.
+#define FRAMERATE_CLOCK_DENOMINATOR (GAME_FRAMERATE * 12)
+u32 framerate_frame_interval_units(void);
 
 // Milliseconds from a clock that only moves forward, for measuring intervals
 long long framerate_monotonic_ms(void);

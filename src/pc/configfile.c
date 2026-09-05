@@ -143,6 +143,11 @@ static char *read_file_line(FILE *file) {
     while (1) {
         // Read a line from the file
         if (fgets(buffer + offset, bufferSize - offset, file) == NULL) {
+            // A line can fill the buffer exactly without setting EOF until
+            // this next read. Keep the text already read in that case.
+            if (offset != 0 && feof(file) && !ferror(file)) {
+                break;
+            }
             free(buffer);
             return NULL; // Nothing could be read.
         }
@@ -163,10 +168,16 @@ static char *read_file_line(FILE *file) {
 
         // If no newline or EOF was reached, then the whole line wasn't read.
         if (bufferSize >= MAX_CONFIG_LINE_SIZE) {
-            int ch;
+            int ch = fgetc(file);
+            // An exactly full final buffer is still a valid line. Peek at
+            // the terminator before treating it as oversized.
+            if (ch == '\n' || (ch == EOF && !ferror(file))) {
+                break;
+            }
             fprintf(stderr, "Ignoring a configuration line longer than %d bytes\n",
-                    MAX_CONFIG_LINE_SIZE);
-            while ((ch = fgetc(file)) != '\n' && ch != EOF) {
+                    MAX_CONFIG_LINE_SIZE - 1);
+            while (ch != '\n' && ch != EOF) {
+                ch = fgetc(file);
             }
             buffer[0] = '\0';
             break;

@@ -91,7 +91,6 @@ int main(void) {
     // so 90 fps on a 120 Hz display has to round down rather than tear
     reset();
     gMaxSubframes = 4;
-    gSubframesLocked = 0;
     configRetroMode = 0;
     configFrameCap = 0;
     CHECK(framerate_choose_subframes() == 4, "auto uses the whole display rate");
@@ -106,13 +105,18 @@ int main(void) {
     CHECK(framerate_choose_subframes() == 1, "retro mode locks to 30 fps");
     configRetroMode = 0;
 
-    // Backends that present at a fixed interval rely on the sub-frame count
-    // for correct game speed, so the policy must leave them alone
-    reset(); run(2000, 55);
-    gSubframesLocked = 1;
+    // Desktop deadlines now follow the chosen sub-frame count as well.
+    reset();
     gMaxSubframes = 2;
-    CHECK(framerate_choose_subframes() == 2, "a locked backend ignores the backoff");
-    gSubframesLocked = 0;
+    configFrameCap = 30;
+    CHECK(framerate_choose_subframes() == 1, "desktop honors the 30 fps cap");
+    configFrameCap = 0;
+    configRetroMode = 1;
+    CHECK(framerate_choose_subframes() == 1, "desktop retro mode renders once per tick");
+    configRetroMode = 0;
+    CHECK(framerate_choose_subframes() == 2, "desktop auto restores interpolation");
+    run(2000, 55);
+    CHECK(framerate_choose_subframes() == 1, "desktop can back off under load");
 
     printf("\nplatform-reported ceiling\n");
 
@@ -122,7 +126,6 @@ int main(void) {
     reset();
     framerate_set_platform_ceiling(MAX_SUBFRAMES);
     gMaxSubframes = 4;
-    gSubframesLocked = 0;
     configRetroMode = 0;
     configFrameCap = 0;
     CHECK(framerate_choose_subframes() == 4, "unconstrained keeps the full rate");

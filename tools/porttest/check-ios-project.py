@@ -92,8 +92,10 @@ def main() -> None:
         fail("the iOS display callback does not return while its scene is inactive")
 
     metal_backend = (ROOT / "src/pc/gfx/gfx_metal.mm").read_text(encoding="utf-8")
-    if "dispatch_semaphore_wait(mtl.frame_semaphore, DISPATCH_TIME_NOW)" not in metal_backend:
-        fail("the Metal display callback can still wait indefinitely for an in-flight slot")
+    if "if (!acquire_frame_slot())" not in metal_backend \
+            or "frame_slots[index].try_acquire(serial)" not in metal_backend \
+            or "dispatch_semaphore_wait" in metal_backend:
+        fail("the Metal display callback must acquire a free arena without waiting")
     if "presentDrawable:mtl.drawable atTime:" in metal_backend \
             or "presentDrawable:mtl.drawable afterMinimumDuration:" in metal_backend:
         fail("Metal still queues future presentations from a display callback")

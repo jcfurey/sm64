@@ -1057,6 +1057,18 @@ static void gfx_calc_and_set_viewport(const Vp_t *viewport) {
     rdp.viewport_or_scissor_changed = true;
 }
 
+static void gfx_sp_light(int index, const void *data) {
+    if (index < 0 || index > MAX_LIGHTS || data == NULL) {
+        return;
+    }
+    // The last active light is ambient: its source has colors but no
+    // direction. gSPLight encodes sizeof(Light) for both source types.
+    size_t size = index == rsp.current_num_lights - 1 ? sizeof(Ambient_t) : sizeof(Light_t);
+    memset(&rsp.current_lights[index], 0, sizeof(Light_t));
+    memcpy(&rsp.current_lights[index], data, size);
+    rsp.lights_changed = true;
+}
+
 static void gfx_sp_movemem(uint8_t index, uint8_t offset, const void* data) {
     switch (index) {
         case G_MV_VIEWPORT:
@@ -1071,19 +1083,14 @@ static void gfx_sp_movemem(uint8_t index, uint8_t offset, const void* data) {
 #endif
 #ifdef F3DEX_GBI_2
         case G_MV_LIGHT: {
-            int lightidx = offset / 24 - 2;
-            if (lightidx >= 0 && lightidx <= MAX_LIGHTS) { // skip lookat
-                // NOTE: reads out of bounds if it is an ambient light
-                memcpy(rsp.current_lights + lightidx, data, sizeof(Light_t));
-            }
+            gfx_sp_light(offset / 24 - 2, data); // negative indices are lookat
             break;
         }
 #else
         case G_MV_L0:
         case G_MV_L1:
         case G_MV_L2:
-            // NOTE: reads out of bounds if it is an ambient light
-            memcpy(rsp.current_lights + (index - G_MV_L0) / 2, data, sizeof(Light_t));
+            gfx_sp_light((index - G_MV_L0) / 2, data);
             break;
 #endif
     }
@@ -1463,12 +1470,16 @@ static void gfx_dp_set_color_image(uint32_t format, uint32_t size, uint32_t widt
     rdp.color_image_address = address;
 }
 
-static void gfx_sp_set_other_mode(uint32_t shift, uint32_t num_bits, uint64_t mode) {
-    uint64_t mask = (((uint64_t)1 << num_bits) - 1) << shift;
-    uint64_t om = rdp.other_mode_l | ((uint64_t)rdp.other_mode_h << 32);
-    om = (om & ~mask) | mode;
-    rdp.other_mode_l = (uint32_t)om;
-    rdp.other_mode_h = (uint32_t)(om >> 32);
+static void gfx_sp_set_other_mode(uint32_t shift, uint32_t num_bits, uint32_t mode, bool high) {
+    // Each command updates a field inside one 32-bit other-mode word.
+    // Reject invalid lengths and underflowed F3DEX2 shift fields before
+    // constructing the mask, leaving the previous render state intact.
+    if (num_bits == 0 || num_bits > 32 || shift >= 32 || num_bits > 32 - shift) {
+        return;
+    }
+    uint32_t mask = (uint32_t) ((((uint64_t)1 << num_bits) - 1) << shift);
+    uint32_t *word = high ? &rdp.other_mode_h : &rdp.other_mode_l;
+    *word = (*word & ~mask) | (mode & mask);
 }
 
 static inline void *seg_addr(uintptr_t w1) {
@@ -1568,16 +1579,16 @@ static void gfx_run_dl(Gfx* cmd) {
 #endif
             case (uint8_t)G_SETOTHERMODE_L:
 #ifdef F3DEX_GBI_2
-                gfx_sp_set_other_mode(31 - C0(8, 8) - C0(0, 8), C0(0, 8) + 1, cmd->words.w1);
+                gfx_sp_set_other_mode(31 - C0(8, 8) - C0(0, 8), C0(0, 8) + 1, cmd->words.w1, false);
 #else
-                gfx_sp_set_other_mode(C0(8, 8), C0(0, 8), cmd->words.w1);
+                gfx_sp_set_other_mode(C0(8, 8), C0(0, 8), cmd->words.w1, false);
 #endif
                 break;
             case (uint8_t)G_SETOTHERMODE_H:
 #ifdef F3DEX_GBI_2
-                gfx_sp_set_other_mode(63 - C0(8, 8) - C0(0, 8), C0(0, 8) + 1, (uint64_t) cmd->words.w1 << 32);
+                gfx_sp_set_other_mode(31 - C0(8, 8) - C0(0, 8), C0(0, 8) + 1, cmd->words.w1, true);
 #else
-                gfx_sp_set_other_mode(C0(8, 8) + 32, C0(0, 8), (uint64_t) cmd->words.w1 << 32);
+                gfx_sp_set_other_mode(C0(8, 8), C0(0, 8), cmd->words.w1, true);
 #endif
                 break;
 #ifdef F3D_OLD
